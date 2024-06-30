@@ -6,6 +6,7 @@ const path = require('path');
 var http = require('http');
 var HttpDispatcher = require('httpdispatcher');
 var WebSocketServer = require('websocket').server;
+const child_process = require('child_process');
 
 var dispatcher = new HttpDispatcher();
 var wsserver = http.createServer(handleRequest);
