@@ -59,7 +59,7 @@ class MediaStream {
     
     // start FFmpeg
     // implementation from https://github.com/fbsamples/Canvas-Streaming-Example/blob/master/README.md
-    var ffmpeg = child_process.spawn('ffmpeg', [
+    this.ffmpeg = child_process.spawn('ffmpeg', [
       // testing options
       '-y', '-loglevel', 'verbose',
     
@@ -77,7 +77,7 @@ class MediaStream {
     ]);
     
     // If FFmpeg stops for any reason, close the WebSocket connection.
-    ffmpeg.on('close', (code, signal) => {
+    this.ffmpeg.on('close', (code, signal) => {
       console.log('FFmpeg child process closed, code ' + code + ', signal ' + signal);
       MediaStream.close(); // not sure this is right
     });
@@ -85,12 +85,12 @@ class MediaStream {
     // Handle STDIN pipe errors by logging to the console.
     // These errors most commonly occur when FFmpeg closes and there is still
     // data to write.  If left unhandled, the server will crash.
-    ffmpeg.stdin.on('error', (e) => {
+    this.ffmpeg.stdin.on('error', (e) => {
       console.log('FFmpeg STDIN Error', e);
     });
     
     // FFmpeg outputs all of its messages to STDERR.  Let's log them to the console.
-    ffmpeg.stderr.on('data', (data) => {
+    this.ffmpeg.stderr.on('data', (data) => {
       console.log('FFmpeg STDERR:', data.toString());
     });
   }
@@ -114,7 +114,7 @@ class MediaStream {
         // consume stream https://www.twilio.com/docs/voice/tutorials/consume-real-time-media-stream-using-websockets-python-and-flask
         var payload_b64 = data.media.payload;
         var payload = Buffer.from(payload_b64, 'base64').toString('utf-8'); // https://stackoverflow.com/a/14573049
-        ffmpeg.stdin.write(payload);
+        this.ffmpeg.stdin.write(payload);
 
       }
       if (data.event === "stop") {
@@ -128,7 +128,7 @@ class MediaStream {
 
   close(){
     log('Media WS: Stopped. Received a total of [' + this.messageCount + '] messages');
-    ffmpeg.kill('SIGINT');
+    this.ffmpeg.kill('SIGINT');
   }
 }
 
