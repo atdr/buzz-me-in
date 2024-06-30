@@ -1,3 +1,4 @@
+// based on https://github.com/twilio/media-streams/blob/master/node/basic/README.md
 "use strict";
 
 const fs = require('fs');
@@ -54,6 +55,43 @@ class MediaStream {
     connection.on('close', this.close.bind(this));
     this.hasSeenMedia = false;
     this.messageCount = 0;
+    
+    // start FFmpeg
+    // implementation from https://github.com/fbsamples/Canvas-Streaming-Example/blob/master/README.md
+    const ffmpeg = child_process.spawn('ffmpeg', [
+      // testing options
+      '-y', '-loglevel', 'verbose',
+    
+      // audio input format https://stackoverflow.com/q/60955908
+      '-f', 'mulaw', '-ar', 8000, '-ac', 1, '-bits_per_raw_sample', 8,
+      
+      // FFmpeg will read input from STDIN
+      '-i', '-',
+      
+      // audio output format
+      '-af', 'aresample=resampler=soxr', '-ar', 16000,
+      
+      // output destination
+      'audio.wav'
+    ]);
+    
+    // If FFmpeg stops for any reason, close the WebSocket connection.
+    ffmpeg.on('close', (code, signal) => {
+      console.log('FFmpeg child process closed, code ' + code + ', signal ' + signal);
+      MediaStream.close(); // not sure this is right
+    });
+    
+    // Handle STDIN pipe errors by logging to the console.
+    // These errors most commonly occur when FFmpeg closes and there is still
+    // data to write.  If left unhandled, the server will crash.
+    ffmpeg.stdin.on('error', (e) => {
+      console.log('FFmpeg STDIN Error', e);
+    });
+    
+    // FFmpeg outputs all of its messages to STDERR.  Let's log them to the console.
+    ffmpeg.stderr.on('data', (data) => {
+      console.log('FFmpeg STDERR:', data.toString());
+    });
   }
 
   processMessage(message){
@@ -71,6 +109,12 @@ class MediaStream {
           log('Media WS: Suppressing additional messages...');
           this.hasSeenMedia = true;
         }
+
+        // consume stream https://www.twilio.com/docs/voice/tutorials/consume-real-time-media-stream-using-websockets-python-and-flask
+        var payload_b64 = data.media.payload;
+        var payload = Buffer.from(payload_b64, 'base64').toString('utf-8'); // https://stackoverflow.com/a/14573049
+        ffmpeg.stdin.write(payload);
+
       }
       if (data.event === "stop") {
         log('Media WS: Stop event received: ', data);
@@ -83,6 +127,7 @@ class MediaStream {
 
   close(){
     log('Media WS: Stopped. Received a total of [' + this.messageCount + '] messages');
+    ffmpeg.kill('SIGINT');
   }
 }
 
