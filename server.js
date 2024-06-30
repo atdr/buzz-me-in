@@ -59,7 +59,7 @@ class MediaStream {
     
     // start FFmpeg
     // implementation from https://github.com/fbsamples/Canvas-Streaming-Example/blob/master/README.md
-    const ffmpeg = child_process.spawn('ffmpeg', [
+    let ffmpeg = child_process.spawn('ffmpeg', [
       // testing options
       '-y', '-loglevel', 'verbose',
     
