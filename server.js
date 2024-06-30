@@ -79,7 +79,7 @@ class MediaStream {
     // If FFmpeg stops for any reason, close the WebSocket connection.
     this.ffmpeg.on('close', (code, signal) => {
       console.log('FFmpeg child process closed, code ' + code + ', signal ' + signal);
-      MediaStream.close(); // not sure this is right
+      this.close();
     });
     
     // Handle STDIN pipe errors by logging to the console.
@@ -113,7 +113,7 @@ class MediaStream {
 
         // consume stream https://www.twilio.com/docs/voice/tutorials/consume-real-time-media-stream-using-websockets-python-and-flask
         var payload_b64 = data.media.payload;
-        var payload = Buffer.from(payload_b64, 'base64').toString('utf-8'); // https://stackoverflow.com/a/14573049
+        var payload = Buffer.from(payload_b64, 'base64'); // https://stackoverflow.com/a/14573049
         this.ffmpeg.stdin.write(payload);
 
       }
