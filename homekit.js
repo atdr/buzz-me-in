@@ -25,7 +25,7 @@ const os     = require('os');
 const { spawn } = require('child_process');
 
 const state           = require('./state');
-const { hangUpCall, unlockDoor } = require('./twilio-api');
+const { answerCall, hangUpCall, unlockDoor } = require('./twilio-api');
 
 const {
   Accessory,
@@ -338,6 +338,14 @@ function _startSession(sessionID, s, callback) {
   });
 
   activeSessions.set(sessionID, { ...s, ffIn, ffOut, sdpPath });
+
+  // Stop the ringtone playing to the caller and hold the call silently.
+  if (state.activeCall) {
+    answerCall(state.activeCall.callSid).catch(e =>
+      console.error('[Twilio] answerCall failed:', e.message)
+    );
+  }
+
   callback();
 }
 

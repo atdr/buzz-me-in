@@ -3,8 +3,10 @@
 
 require('dotenv').config();
 
+const fs   = require('fs');
 const http = require('http');
 const { PassThrough } = require('stream');
+const { spawn }       = require('child_process');
 const HttpDispatcher  = require('httpdispatcher');
 const WebSocketServer = require('websocket').server;
 
@@ -12,6 +14,38 @@ const state   = require('./state');
 const homekit = require('./homekit');
 
 const HTTP_SERVER_PORT = parseInt(process.env.PORT, 10) || 8080;
+
+// ---------------------------------------------------------------------------
+// Ringtone — generated once at startup by ffmpeg.
+// UK-style ring: 400Hz+450Hz dual tone, 0.4 s on / 2.6 s off in a 3 s loop.
+// Served at GET /ringtone.wav; referenced by <Play loop="0"> in TwiML so
+// Twilio loops it to the caller until HomeKit answers (answerCall REST update).
+// ---------------------------------------------------------------------------
+const RINGTONE_PATH = '/tmp/intercom_ringtone.wav';
+
+function generateRingtone() {
+  return new Promise((resolve) => {
+    const ff = spawn('ffmpeg', [
+      '-y', '-loglevel', 'warning',
+      '-f', 'lavfi',
+      // 3-second clip: dual tone for the first 0.4 s, silence for the remaining 2.6 s
+      '-i', 'aevalsrc=(sin(2*PI*400*t)+sin(2*PI*450*t))*0.4*between(mod(t,3),0,0.4):s=8000:d=3',
+      '-ar', '8000', '-ac', '1',
+      RINGTONE_PATH,
+    ]);
+    ff.on('close', code => {
+      if (code === 0) {
+        log('Ringtone generated at', RINGTONE_PATH);
+      } else {
+        console.error('ffmpeg ringtone generation failed with code', code);
+      }
+      resolve();
+    });
+    ff.stderr.resume();
+  });
+}
+
+generateRingtone();
 
 const dispatcher = new HttpDispatcher();
 const wsserver   = http.createServer(handleRequest);
@@ -62,13 +96,29 @@ dispatcher.onPost('/twiml', function(_req, res) {
   <Start>
     <Stream url="wss://${tunnelHost}/"/>
   </Start>
-  <Pause length="300"/>
+  <Play loop="0">https://${tunnelHost}/ringtone.wav</Play>
 </Response>`;
   res.writeHead(200, {
     'Content-Type': 'text/xml',
     'Content-Length': Buffer.byteLength(body),
   });
   res.end(body);
+});
+
+/**
+ * GET /ringtone.wav
+ * UK-style ring tone served to Twilio via <Play loop="0">.
+ */
+dispatcher.onGet('/ringtone.wav', function(_req, res) {
+  fs.readFile(RINGTONE_PATH, (err, data) => {
+    if (err) {
+      res.writeHead(503);
+      res.end('Ringtone not ready');
+      return;
+    }
+    res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': data.length });
+    res.end(data);
+  });
 });
 
 /**

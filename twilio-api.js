@@ -37,6 +37,19 @@ async function unlockDoor(callSid) {
 }
 
 /**
+ * Stop ringing and hold the call open silently.
+ * Called when HomeKit opens the camera live view (handleStreamRequest START).
+ * Replaces the looping <Play> with a plain <Pause> so the media stream
+ * continues without interruption.
+ */
+async function answerCall(callSid) {
+  console.log(`[Twilio] Answering (stopping ringtone) for ${callSid}`);
+  return client().calls(callSid).update({
+    twiml: `<Response><Pause length="300"/></Response>`,
+  });
+}
+
+/**
  * Terminate the call immediately.
  * Called when the HomeKit session is dismissed by the user.
  */
@@ -47,4 +60,4 @@ async function hangUpCall(callSid) {
   });
 }
 
-module.exports = { unlockDoor, hangUpCall };
+module.exports = { answerCall, unlockDoor, hangUpCall };
