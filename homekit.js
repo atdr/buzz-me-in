@@ -17,6 +17,7 @@
  */
 
 const hap = require('hap-nodejs');
+const qrcode = require('qrcode-terminal');
 const crypto = require('crypto');
 const fs     = require('fs');
 const net    = require('net');
@@ -456,10 +457,20 @@ accessory.publish({
   category: Categories.VIDEO_DOORBELL,
 });
 
-console.log(
-  '[HomeKit] Accessory published — pair with pincode',
-  process.env.HAP_PINCODE || 'XXX-XX-XXX'
-);
+const hapPincode  = process.env.HAP_PINCODE || 'XXX-XX-XXX';
+// HomeKit pairing URI: X-HM://00<category-hex><8-digit-pin>
+// Category is encoded as a 10-bit value packed into the URI number field.
+// See HAP spec §5.7.3 — format: X-HM://00<(category<<1 | 0) as 10-digit zero-padded decimal><pin>
+const pinDigits  = hapPincode.replace(/-/g, '').padStart(8, '0');
+const categoryId = Categories.VIDEO_DOORBELL; // keep in sync with accessory.publish category above
+const uriPayload = ((categoryId << 1) * 100000000 + parseInt(pinDigits, 10))
+  .toString()
+  .padStart(10, '0');
+const hapUri = `X-HM://00${uriPayload}`;
+
+console.log(`[HomeKit] Accessory published — pair with pincode ${hapPincode}`);
+console.log(`[HomeKit] Or scan this QR code with the Home app:\n`);
+qrcode.generate(hapUri, { small: true });
 
 // Kick off snapshot generation asynchronously (non-blocking)
 initSnapshot().then(() => console.log('[HomeKit] Snapshot ready'));
