@@ -104,7 +104,7 @@ dispatcher.onPost('/twiml', function(_req, res) {
   <Start>
     <Stream url="wss://${tunnelHost}/"/>
   </Start>
-  <Play loop="0">https://${tunnelHost}/ringtone.wav</Play>
+  <Play loop="0">https://${tunnelHost}/ringtone</Play>
 </Response>`;
   res.writeHead(200, {
     'Content-Type': 'text/xml',
@@ -117,7 +117,7 @@ dispatcher.onPost('/twiml', function(_req, res) {
  * GET /ringtone.wav
  * UK-style ring tone served to Twilio via <Play loop="0">.
  */
-dispatcher.onGet('/ringtone.wav', function(_req, res) {
+dispatcher.onGet('/ringtone', function(_req, res) {
   fs.readFile(RINGTONE_PATH, (err, data) => {
     if (err) {
       res.writeHead(503);
