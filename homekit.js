@@ -389,10 +389,12 @@ const doorbellService = accessory.addService(Service.Doorbell, 'Intercom Doorbel
 const lockService = accessory.addService(Service.LockMechanism, 'Intercom Lock');
 lockService
   .getCharacteristic(Characteristic.LockCurrentState)
+  .onGet(() => Characteristic.LockCurrentState.SECURED)
   .setValue(Characteristic.LockCurrentState.SECURED);
 
 lockService
   .getCharacteristic(Characteristic.LockTargetState)
+  .onGet(() => Characteristic.LockTargetState.SECURED)
   .onSet(async value => {
     if (value === Characteristic.LockTargetState.UNSECURED && state.activeCall) {
       try {
