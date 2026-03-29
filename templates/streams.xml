@@ -7,10 +7,10 @@
   <!--
     Hold the call open for up to an hour.
     We manage call lifecycle via the Twilio REST API (twilio-api.js):
-      - unlock: calls/{CallSid}/update with <Play digits="9"/><Pause length="3600"/>
+      - unlock: calls/{CallSid}/update with <Play digits="9"/><Pause length="300"/>
       - hangup: calls/{CallSid}/update with <Hangup/>
     Do NOT use a <Redirect> loop — it causes Twilio to re-open the WebSocket
     on each iteration, adding reconnection complexity.
   -->
-  <Pause length="3600"/>
+  <Pause length="300"/>
 </Response>

@@ -32,7 +32,7 @@ function client() {
 async function unlockDoor(callSid) {
   console.log(`[Twilio] Sending DTMF unlock to ${callSid}`);
   return client().calls(callSid).update({
-    twiml: `<Response><Play digits="9"/><Pause length="3600"/></Response>`,
+    twiml: `<Response><Play digits="9"/><Pause length="300"/></Response>`,
   });
 }
 

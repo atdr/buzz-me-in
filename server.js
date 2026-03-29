@@ -45,12 +45,12 @@ function handleRequest(request, response) {
  * Returns TwiML that starts a bidirectional media stream and holds the call
  * open for up to an hour.
  *
- * <Pause length="3600"/> keeps the call alive without a <Redirect> loop.
+ * <Pause length="300"/> keeps the call alive without a <Redirect> loop.
  * A loop would cause Twilio to re-open the WebSocket on each iteration,
  * adding reconnection complexity. We manage the call lifecycle entirely via
  * the REST API instead (see twilio-api.js).
  */
-dispatcher.onPost('/twiml', function(req, res) {
+dispatcher.onPost('/twiml', function(_req, res) {
   log('POST /twiml');
   const filePath = path.join(__dirname, 'templates', 'streams.xml');
   const stat = fs.statSync(filePath);
