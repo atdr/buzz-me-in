@@ -453,14 +453,14 @@ accessory.configureController(cameraController);
 
 accessory.publish({
   username: process.env.HAP_USERNAME || 'AA:BB:CC:DD:EE:FF',
-  pincode:  process.env.HAP_PINCODE  || '031-45-154',
+  pincode:  process.env.HAP_PINCODE  || 'XXX-XX-XXX',
   port:     parseInt(process.env.HAP_PORT, 10) || 47129,
   category: Categories.VIDEO_DOORBELL,
 });
 
 console.log(
   '[HomeKit] Accessory published — pair with pincode',
-  process.env.HAP_PINCODE || '031-45-154'
+  process.env.HAP_PINCODE || 'XXX-XX-XXX'
 );
 
 // Kick off snapshot generation asynchronously (non-blocking)

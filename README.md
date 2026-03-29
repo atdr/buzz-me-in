@@ -169,7 +169,7 @@ Start the server:
 node server.js
 ```
 
-Open the **Home app** on your iPhone → **+** → **Add Accessory** → **More options** → you should see **Apartment Intercom**. Enter the pincode from your `.env` file (e.g. `031-45-154`).
+Open the **Home app** on your iPhone → **+** → **Add Accessory** → **More options** → you should see **Apartment Intercom**. Enter the pincode from your `.env` file (e.g. `XXX-XX-XXX`).
 
 After pairing you will see:
 
