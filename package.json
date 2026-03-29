@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "hap-nodejs": "^13.0.0",
+    "hap-nodejs": "^0.14.2",
     "httpdispatcher": "^2.1.2",
     "twilio": "^5.3.7",
     "websocket": "^1.0.35"
