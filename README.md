@@ -94,26 +94,36 @@ Edit `.env` and fill in:
 | `HAP_PINCODE` | Your choice — format `XXX-XX-XXX` |
 | `HAP_PORT` | Default `47129` — must be open in your firewall/router |
 
-Generate a unique HAP username (Bluetooth MAC-style address):
+Generate unique values for `HAP_USERNAME` and `HAP_PINCODE`:
 
 ```bash
+# HAP_USERNAME — Bluetooth MAC-style address, must be unique on your LAN
 node -e "
   const b = require('crypto').randomBytes(6);
   console.log([...b].map(x => x.toString(16).padStart(2,'0').toUpperCase()).join(':'));
+"
+
+# HAP_PINCODE — format XXX-XX-XXX
+node -e "
+  const r = n => String(Math.floor(Math.random() * 10 ** n)).padStart(n, '0');
+  console.log(r(3) + '-' + r(2) + '-' + r(3));
 "
 ```
 
 ### 3. Cloudflare Tunnel
 
-Install `cloudflared` on the RPi:
+Install `cloudflared` on the RPi via the official Cloudflare apt repository (preferred over a manual binary download — gives you automatic updates via `apt upgrade`):
 
 ```bash
-curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-arm64 \
-  -o /usr/local/bin/cloudflared
-chmod +x /usr/local/bin/cloudflared
+sudo mkdir -p --mode=0755 /usr/share/keyrings
+curl -fsSL https://pkg.cloudflare.com/cloudflare-main.gpg \
+  | sudo tee /usr/share/keyrings/cloudflare-main.gpg >/dev/null
+echo 'deb [signed-by=/usr/share/keyrings/cloudflare-main.gpg] https://pkg.cloudflare.com/cloudflared any main' \
+  | sudo tee /etc/apt/sources.list.d/cloudflared.list
+sudo apt-get update && sudo apt-get install cloudflared
 ```
 
-Authenticate (do this once — opens a browser; you can auth on a desktop and copy the cert file to the RPi):
+Authenticate (do this once per machine). Run on the RPi — it will print a URL; open that URL in any browser on any device, log into your Cloudflare account, and select your domain. The RPi polls for the auth and writes `~/.cloudflared/cert.pem` automatically:
 
 ```bash
 cloudflared tunnel login
