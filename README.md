@@ -152,15 +152,7 @@ cloudflared tunnel run intercom
 curl https://intercom.yourdomain.com/status   # should return {"active":false}
 ```
 
-### 4. Update TwiML with your tunnel URL
-
-Edit `templates/streams.xml` and replace `YOUR_TUNNEL_HOSTNAME` with your tunnel hostname:
-
-```xml
-<Stream url="wss://intercom.yourdomain.com/"/>
-```
-
-### 5. Configure Twilio
+### 4. Configure Twilio
 
 In the [Twilio Console](https://console.twilio.com/us1/develop/phone-numbers/manage/incoming):
 
@@ -367,8 +359,6 @@ curl https://intercom.yourdomain.com/status
 ├── homekit.js          # HAP-NodeJS camera+doorbell accessory; ffmpeg pipelines
 ├── twilio-api.js       # Twilio REST API helpers (unlock, hangup)
 ├── state.js            # Shared mutable call state (activeCall)
-├── templates/
-│   └── streams.xml     # TwiML: starts media stream, holds call for 1 hour
 ├── intercom.service    # systemd unit for the Node.js server
 ├── cloudflared.service # systemd unit for the Cloudflare Tunnel
 ├── .env.example        # Environment variable template
@@ -385,6 +375,7 @@ See `.env.example` for the full list. All are required unless marked optional.
 | `TWILIO_AUTH_TOKEN` | Twilio auth token |
 | `TWILIO_PHONE_NUMBER` | Twilio number receiving intercom calls (E.164) |
 | `PORT` | HTTP server port (default: `8080`) |
+| `TUNNEL_HOSTNAME` | Cloudflare Tunnel hostname used to build the `wss://` URL in TwiML |
 | `HAP_USERNAME` | HAP accessory MAC-style address — must be unique on LAN |
 | `HAP_PINCODE` | HomeKit pairing code (`XXX-XX-XXX`) |
 | `HAP_PORT` | HAP mDNS port (default: `47129`) |

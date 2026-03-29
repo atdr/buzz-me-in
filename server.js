@@ -3,8 +3,6 @@
 
 require('dotenv').config();
 
-const fs   = require('fs');
-const path = require('path');
 const http = require('http');
 const { PassThrough } = require('stream');
 const HttpDispatcher  = require('httpdispatcher');
@@ -52,13 +50,25 @@ function handleRequest(request, response) {
  */
 dispatcher.onPost('/twiml', function(_req, res) {
   log('POST /twiml');
-  const filePath = path.join(__dirname, 'templates', 'streams.xml');
-  const stat = fs.statSync(filePath);
+  const tunnelHost = process.env.TUNNEL_HOSTNAME;
+  if (!tunnelHost) {
+    log('ERROR: TUNNEL_HOSTNAME not set');
+    res.writeHead(500);
+    res.end('TUNNEL_HOSTNAME environment variable not set');
+    return;
+  }
+  const body = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Start>
+    <Stream url="wss://${tunnelHost}/"/>
+  </Start>
+  <Pause length="300"/>
+</Response>`;
   res.writeHead(200, {
     'Content-Type': 'text/xml',
-    'Content-Length': stat.size,
+    'Content-Length': Buffer.byteLength(body),
   });
-  fs.createReadStream(filePath).pipe(res);
+  res.end(body);
 });
 
 /**
