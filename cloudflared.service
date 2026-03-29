@@ -1,0 +1,22 @@
+[Unit]
+Description=Cloudflare Tunnel (intercom)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+
+# 'tunnel run <name>' reads ~/.cloudflared/config.yml and the credentials file
+# created by 'cloudflared tunnel create intercom'.
+ExecStart=/usr/local/bin/cloudflared tunnel run intercom
+
+Restart=on-failure
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=cloudflared
+
+[Install]
+WantedBy=multi-user.target

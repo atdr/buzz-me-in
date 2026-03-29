@@ -1,7 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Start>
-    <Stream url="wss://kiwi-strong-garfish.ngrok-free.app/"></Stream>
+    <!-- url must match your ngrok/cloudflared tunnel + WebSocket path -->
+    <Stream url="wss://YOUR_TUNNEL_HOSTNAME/"/>
   </Start>
-  <Pause length="40"/>
+  <!--
+    Hold the call open for up to an hour.
+    We manage call lifecycle via the Twilio REST API (twilio-api.js):
+      - unlock: calls/{CallSid}/update with <Play digits="9"/><Pause length="3600"/>
+      - hangup: calls/{CallSid}/update with <Hangup/>
+    Do NOT use a <Redirect> loop — it causes Twilio to re-open the WebSocket
+    on each iteration, adding reconnection complexity.
+  -->
+  <Pause length="3600"/>
 </Response>

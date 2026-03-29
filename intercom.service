@@ -1,0 +1,32 @@
+[Unit]
+Description=HomeKit Intercom Server
+Documentation=https://github.com/twilio/media-streams
+# Start after the network is up AND after the tunnel service
+# so the server is ready by the time Twilio can reach it.
+After=network-online.target cloudflared.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/intercom
+
+# Load environment variables from .env file
+EnvironmentFile=/home/pi/intercom/.env
+
+ExecStart=/usr/bin/node server.js
+
+# Restart on any non-zero exit (crash, OOM, etc.)
+# Do NOT restart on clean exit (code 0) to allow intentional shutdowns.
+Restart=on-failure
+RestartSec=5
+
+# Give HAP-NodeJS time to unpublish the mDNS record gracefully on stop.
+TimeoutStopSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=intercom
+
+[Install]
+WantedBy=multi-user.target

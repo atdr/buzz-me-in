@@ -1,23 +1,17 @@
 {
-  "name": "basic",
-  "version": "0.0.1",
-  "description": "Basic Programmable Streams demo",
+  "name": "homekit-intercom",
+  "version": "0.1.0",
+  "description": "HomeKit-compatible apartment intercom via Twilio media streams",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
-  "repository": {
-    "type": "git",
-    "url": ""
-  },
-  "author": "",
   "license": "MIT",
-  "bugs": {
-    "url": ""
-  },
-  "homepage": "",
   "dependencies": {
+    "dotenv": "^16.4.5",
+    "hap-nodejs": "^13.0.0",
     "httpdispatcher": "^2.1.2",
-    "websocket": "^1.0.28"
+    "twilio": "^5.3.7",
+    "websocket": "^1.0.35"
   }
 }
