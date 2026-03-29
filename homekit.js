@@ -370,8 +370,6 @@ function _stopSession(sessionID, hangUp) {
 // Accessory construction
 // ---------------------------------------------------------------------------
 
-hap.init();
-
 const accessory = new Accessory(
   'Apartment Intercom',
   hapUuid.generate('homekit-intercom-v1')
