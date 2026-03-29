@@ -7,6 +7,14 @@
     "start": "node server.js"
   },
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/atdr/media-streams-playground.git"
+  },
+  "homepage": "https://github.com/atdr/media-streams-playground",
+  "bugs": {
+    "url": "https://github.com/atdr/media-streams-playground/issues"
+  },
   "dependencies": {
     "dotenv": "^16.4.5",
     "hap-nodejs": "^13.0.0",
