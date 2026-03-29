@@ -25,18 +25,29 @@ const RINGTONE_PATH = '/tmp/intercom_ringtone.wav';
 
 function generateRingtone() {
   return new Promise((resolve) => {
-    // Generate a 3-second UK-style ring tone:
-    //   - Two sine waves (400 Hz + 450 Hz) mixed together for 0.4 s
-    //   - Followed by 2.6 s of silence
-    // Uses the sine lavfi source + amix + apad + atrim — widely supported
-    // across ffmpeg versions without needing aevalsrc.
+    // Generate a 3-second UK-style double ring tone:
+    //   400ms on, 200ms off, 400ms on, 2000ms off  (= 3 s, looped by Twilio)
+    // Each burst is a 400Hz + 450Hz dual tone mixed at half amplitude.
     const ff = spawn('ffmpeg', [
       '-y', '-loglevel', 'warning',
+      // Burst 1: 400ms
       '-f', 'lavfi', '-i', 'sine=frequency=400:duration=0.4',
       '-f', 'lavfi', '-i', 'sine=frequency=450:duration=0.4',
+      // Burst 2: 400ms
+      '-f', 'lavfi', '-i', 'sine=frequency=400:duration=0.4',
+      '-f', 'lavfi', '-i', 'sine=frequency=450:duration=0.4',
+      // Silence source
       '-f', 'lavfi', '-i', 'anullsrc=r=8000:cl=mono',
-      '-filter_complex',
-      '[0][1]amix=inputs=2:duration=shortest[tone];[tone][2]concat=n=2:v=0:a=1,apad=pad_dur=2.6,atrim=duration=3[out]',
+      '-filter_complex', [
+        // Mix each burst pair
+        '[0][1]amix=inputs=2:duration=shortest,volume=0.5[b1]',
+        '[2][3]amix=inputs=2:duration=shortest,volume=0.5[b2]',
+        // 200ms silence between bursts, 2000ms silence after
+        '[4]atrim=duration=0.2[gap]',
+        '[4]atrim=duration=2.0[tail]',
+        // Concatenate: burst1, gap, burst2, tail
+        '[b1][gap][b2][tail]concat=n=4:v=0:a=1[out]',
+      ].join(';'),
       '-map', '[out]',
       '-ar', '8000', '-ac', '1',
       RINGTONE_PATH,
@@ -124,7 +135,7 @@ dispatcher.onGet('/ringtone', function(_req, res) {
       res.end('Ringtone not ready');
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': data.length });
+    res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': data.length, 'Cache-Control': 'no-store' });
     res.end(data);
   });
 });
