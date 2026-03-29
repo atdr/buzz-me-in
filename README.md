@@ -72,7 +72,7 @@ RPi: server.js (HTTP + WebSocket on one port)
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/atdr/media-streams-playground.git intercom
+git clone https://github.com/atdr/twilio-homekit-intercom.git intercom
 cd intercom
 npm install
 ```

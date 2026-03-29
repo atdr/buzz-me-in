@@ -1,5 +1,5 @@
 {
-  "name": "homekit-intercom",
+  "name": "twilio-homekit-intercom",
   "version": "0.1.0",
   "description": "HomeKit-compatible apartment intercom via Twilio media streams",
   "main": "server.js",
@@ -9,11 +9,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/atdr/media-streams-playground.git"
+    "url": "git+https://github.com/atdr/twilio-homekit-intercom.git"
   },
-  "homepage": "https://github.com/atdr/media-streams-playground",
+  "homepage": "https://github.com/atdr/twilio-homekit-intercom",
   "bugs": {
-    "url": "https://github.com/atdr/media-streams-playground/issues"
+    "url": "https://github.com/atdr/twilio-homekit-intercom/issues"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
