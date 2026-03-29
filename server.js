@@ -25,11 +25,19 @@ const RINGTONE_PATH = '/tmp/intercom_ringtone.wav';
 
 function generateRingtone() {
   return new Promise((resolve) => {
+    // Generate a 3-second UK-style ring tone:
+    //   - Two sine waves (400 Hz + 450 Hz) mixed together for 0.4 s
+    //   - Followed by 2.6 s of silence
+    // Uses the sine lavfi source + amix + apad + atrim — widely supported
+    // across ffmpeg versions without needing aevalsrc.
     const ff = spawn('ffmpeg', [
       '-y', '-loglevel', 'warning',
-      '-f', 'lavfi',
-      // 3-second clip: dual tone for the first 0.4 s, silence for the remaining 2.6 s
-      '-i', 'aevalsrc=(sin(2*PI*400*t)+sin(2*PI*450*t))*0.4*between(mod(t,3),0,0.4):s=8000:d=3',
+      '-f', 'lavfi', '-i', 'sine=frequency=400:duration=0.4',
+      '-f', 'lavfi', '-i', 'sine=frequency=450:duration=0.4',
+      '-f', 'lavfi', '-i', 'anullsrc=r=8000:cl=mono',
+      '-filter_complex',
+      '[0][1]amix=inputs=2:duration=shortest[tone];[tone][2]concat=n=2:v=0:a=1,apad=pad_dur=2.6,atrim=duration=3[out]',
+      '-map', '[out]',
       '-ar', '8000', '-ac', '1',
       RINGTONE_PATH,
     ]);
@@ -41,7 +49,7 @@ function generateRingtone() {
       }
       resolve();
     });
-    ff.stderr.resume();
+    ff.stderr.on('data', d => process.stderr.write('[ringtone ffmpeg] ' + d));
   });
 }
 
