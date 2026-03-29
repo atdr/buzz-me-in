@@ -16,6 +16,7 @@
     "url": "https://github.com/atdr/twilio-homekit-intercom/issues"
   },
   "dependencies": {
+    "dbus-native": "^0.1.1",
     "dotenv": "^16.4.5",
     "hap-nodejs": "^0.14.2",
     "httpdispatcher": "^2.1.2",

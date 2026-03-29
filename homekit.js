@@ -451,10 +451,11 @@ const cameraController = new CameraController({
 accessory.configureController(cameraController);
 
 accessory.publish({
-  username: process.env.HAP_USERNAME || 'AA:BB:CC:DD:EE:FF',
-  pincode:  process.env.HAP_PINCODE  || 'XXX-XX-XXX',
-  port:     parseInt(process.env.HAP_PORT, 10) || 47129,
-  category: Categories.VIDEO_DOORBELL,
+  username:   process.env.HAP_USERNAME || 'AA:BB:CC:DD:EE:FF',
+  pincode:    process.env.HAP_PINCODE  || 'XXX-XX-XXX',
+  port:       parseInt(process.env.HAP_PORT, 10) || 47129,
+  category:   Categories.VIDEO_DOORBELL,
+  advertiser: hap.MDNSAdvertiser.AVAHI,
 });
 
 const hapPincode = process.env.HAP_PINCODE || 'XXX-XX-XXX';
