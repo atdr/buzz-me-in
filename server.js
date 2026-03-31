@@ -446,15 +446,17 @@ function isLoopbackAddress(addr) {
 }
 
 function isAuthorizedForStatus(req) {
-  if (config.statusApiToken) {
-    const authHeader = req.headers.authorization;
-    if (typeof authHeader !== 'string' || !authHeader.startsWith(STATUS_BEARER_PREFIX)) {
-      return false;
-    }
-    const provided = authHeader.slice(STATUS_BEARER_PREFIX.length);
-    return safeEqualString(provided, config.statusApiToken);
+  if (!config.statusApiToken) {
+    // Avoid relying on loopback checks: reverse proxies can make external
+    // clients appear local. Keep /status auth explicit and topology-agnostic.
+    return false;
   }
-  return isLoopbackAddress(req.socket && req.socket.remoteAddress);
+  const authHeader = req.headers.authorization;
+  if (typeof authHeader !== 'string' || !authHeader.startsWith(STATUS_BEARER_PREFIX)) {
+    return false;
+  }
+  const provided = authHeader.slice(STATUS_BEARER_PREFIX.length);
+  return safeEqualString(provided, config.statusApiToken);
 }
 
 // ---------------------------------------------------------------------------

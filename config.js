@@ -63,8 +63,11 @@ if (streamAuthSecret.length < 32) {
 }
 
 const statusApiToken = optional('STATUS_API_TOKEN');
-if (statusApiToken && statusApiToken.length < 16) {
-  fail('STATUS_API_TOKEN must be at least 16 characters when set');
+if (!statusApiToken) {
+  fail('Missing required env var: STATUS_API_TOKEN');
+}
+if (statusApiToken.length < 16) {
+  fail('STATUS_API_TOKEN must be at least 16 characters');
 }
 
 const twilioWebhookBaseUrl = sanitizeBaseUrl(

@@ -387,7 +387,7 @@ See `.env.example` for the full list. All are required unless marked optional.
 | `TUNNEL_HOSTNAME` | Cloudflare Tunnel hostname used to build the `wss://` URL in TwiML |
 | `TWILIO_WEBHOOK_BASE_URL` | Optional absolute base URL used for Twilio signature validation (default: `https://{TUNNEL_HOSTNAME}`) |
 | `STREAM_AUTH_SECRET` | Required secret (min 32 chars) used to sign one-time media WebSocket tokens |
-| `STATUS_API_TOKEN` | Optional bearer token (min 16 chars) required by `/status` when set; otherwise `/status` is loopback-only |
+| `STATUS_API_TOKEN` | Required bearer token (min 16 chars) for `/status` |
 | `HAP_USERNAME` | HAP accessory MAC-style address — must be unique on LAN |
 | `HAP_PINCODE` | HomeKit pairing code (`XXX-XX-XXX`) |
 | `HAP_PORT` | HAP mDNS port (default: `47129`) |
