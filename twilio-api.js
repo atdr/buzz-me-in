@@ -12,14 +12,12 @@
  */
 
 const twilio = require('twilio');
+const config = require('./config');
 
 let _client = null;
 function client() {
   if (!_client) {
-    const sid   = process.env.TWILIO_ACCOUNT_SID;
-    const token = process.env.TWILIO_AUTH_TOKEN;
-    if (!sid || !token) throw new Error('TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN not set');
-    _client = twilio(sid, token);
+    _client = twilio(config.twilioAccountSid, config.twilioAuthToken);
   }
   return _client;
 }

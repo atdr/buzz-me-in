@@ -24,6 +24,7 @@ const net    = require('net');
 const os     = require('os');
 const { spawn } = require('child_process');
 
+const config          = require('./config');
 const state           = require('./state');
 const { answerCall, hangUpCall, unlockDoor } = require('./twilio-api');
 
@@ -461,14 +462,14 @@ const cameraController = new CameraController({
 accessory.configureController(cameraController);
 
 accessory.publish({
-  username:   process.env.HAP_USERNAME || 'AA:BB:CC:DD:EE:FF',
-  pincode:    process.env.HAP_PINCODE  || 'XXX-XX-XXX',
-  port:       parseInt(process.env.HAP_PORT, 10) || 47129,
+  username:   config.hapUsername,
+  pincode:    config.hapPincode,
+  port:       config.hapPort,
   category:   Categories.VIDEO_DOORBELL,
   advertiser: hap.MDNSAdvertiser.AVAHI,
 });
 
-const hapPincode = process.env.HAP_PINCODE || 'XXX-XX-XXX';
+const hapPincode = config.hapPincode;
 console.log(`[HomeKit] Accessory published — pair with pincode ${hapPincode}`);
 console.log(`[HomeKit] Or scan this QR code with the Home app:\n`);
 qrcode.generate(accessory.setupURI(), { small: true });
