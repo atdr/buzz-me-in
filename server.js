@@ -89,7 +89,11 @@ function handleRequest(request, response) {
   try {
     const path = request.url ? request.url.split('?')[0] : '';
     if (request.method === 'POST' && path === '/twiml') {
-      void handleTwimlRequest(request, response);
+      handleTwimlRequest(request, response).catch(err => {
+        console.error(err);
+        if (!response.headersSent) response.writeHead(500);
+        response.end('Internal Server Error');
+      });
       return;
     }
     dispatcher.dispatch(request, response);
@@ -369,8 +373,10 @@ function fromBase64Url(value) {
 function safeEqualString(a, b) {
   const left = Buffer.from(a, 'utf8');
   const right = Buffer.from(b, 'utf8');
-  if (left.length !== right.length) return false;
-  return crypto.timingSafeEqual(left, right);
+  const len = Math.max(left.length, right.length);
+  const paddedLeft = Buffer.concat([left, Buffer.alloc(len - left.length)]);
+  const paddedRight = Buffer.concat([right, Buffer.alloc(len - right.length)]);
+  return crypto.timingSafeEqual(paddedLeft, paddedRight);
 }
 
 function pruneExpiredNonces() {
@@ -435,14 +441,6 @@ function verifyAndConsumeStreamToken(token) {
 
   pendingStreamNonces.delete(payload.nonce);
   return { ok: true, callSid: payload.callSid || null };
-}
-
-function isLoopbackAddress(addr) {
-  return (
-    addr === '127.0.0.1' ||
-    addr === '::1' ||
-    addr === '::ffff:127.0.0.1'
-  );
 }
 
 function isAuthorizedForStatus(req) {

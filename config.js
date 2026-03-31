@@ -62,10 +62,7 @@ if (streamAuthSecret.length < 32) {
   fail('STREAM_AUTH_SECRET must be at least 32 characters');
 }
 
-const statusApiToken = optional('STATUS_API_TOKEN');
-if (!statusApiToken) {
-  fail('Missing required env var: STATUS_API_TOKEN');
-}
+const statusApiToken = required('STATUS_API_TOKEN');
 if (statusApiToken.length < 16) {
   fail('STATUS_API_TOKEN must be at least 16 characters');
 }
