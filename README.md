@@ -58,6 +58,8 @@ RPi: server.js (HTTP + WebSocket on one port)
 
 - Raspberry Pi 4 (2 GB RAM recommended) running Raspberry Pi OS (64-bit)
 - Node.js >= 20
+  - Runtime is tested on Node 20+.
+  - Repo tooling/CI currently runs on Node 20 and 22.
 - ffmpeg with libx264 and libopus: `sudo apt install ffmpeg`
 
 ### Accounts and services

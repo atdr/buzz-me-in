@@ -8,7 +8,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "node --check \"server.js\" && node --check \"homekit.js\" && node --check \"twilio-api.js\" && node --check \"state.js\" && node --check \"config.js\""
+    "check": "node --check \"server.js\" && node --check \"homekit.js\" && node --check \"twilio-api.js\" && node --check \"state.js\" && node --check \"config.js\"",
+    "test": "node --test"
   },
   "license": "MIT",
   "repository": {
