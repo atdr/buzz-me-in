@@ -12,7 +12,7 @@
  */
 
 const twilio = require('twilio');
-const config = require('./config');
+const config = require('./src/core/config');
 
 let _client = null;
 function client() {

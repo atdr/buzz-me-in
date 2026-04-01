@@ -9,10 +9,10 @@ const { PassThrough } = require('stream');
 const { spawn } = require('child_process');
 const HttpDispatcher = require('httpdispatcher');
 const WebSocketServer = require('websocket').server;
-const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('./ws-events-schema');
+const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('./src/core/ws-events-schema');
 
-const config = require('./config');
-const state = require('./state');
+const config = require('./src/core/config');
+const state = require('./src/core/state');
 const homekit = require('./homekit');
 
 const HTTP_SERVER_PORT = config.port;

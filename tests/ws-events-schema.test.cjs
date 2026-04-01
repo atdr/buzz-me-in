@@ -2,7 +2,7 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('../ws-events-schema');
+const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('../src/core/ws-events-schema');
 
 describe('ws event schema parsing', () => {
   test('parses valid connected/start/media/stop events', () => {

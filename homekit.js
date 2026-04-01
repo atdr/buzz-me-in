@@ -24,8 +24,8 @@ const net = require('net');
 const os = require('os');
 const { spawn } = require('child_process');
 
-const config = require('./config');
-const state = require('./state');
+const config = require('./src/core/config');
+const state = require('./src/core/state');
 const { answerCall, hangUpCall, unlockDoor } = require('./twilio-api');
 
 const {
