@@ -17,19 +17,23 @@ const VALID_ENV = {
   HAP_PORT: '47129',
 };
 
+let currentState = null;
+
 function loadState(extraEnv) {
   const restore = applyEnv({ ...VALID_ENV, ...extraEnv });
   delete require.cache[require.resolve('../config')];
-  const state = freshRequire('../../state');
-  return { state, restore };
+  currentState = freshRequire('../../state');
+  return { state: currentState, restore };
 }
 
-afterEach(() => {
-  const state = freshRequire('../../state');
-  state.stop();
-});
-
 describe('state session manager', () => {
+  afterEach(() => {
+    if (currentState) {
+      currentState.stop();
+      currentState = null;
+    }
+  });
+
   test('starts and reports an active call', () => {
     const { state, restore } = loadState();
     const ws = { id: 'conn1' };
