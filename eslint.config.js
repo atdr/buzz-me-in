@@ -19,8 +19,6 @@ module.exports = [
     rules: {
       'no-console': 'off',
       'no-empty': ['error', { allowEmptyCatch: true }],
-      'no-case-declarations': 'off',
-      'no-useless-assignment': 'off',
     },
   },
   eslintConfigPrettier,

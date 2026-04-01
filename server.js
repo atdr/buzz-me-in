@@ -166,6 +166,7 @@ function buildTwiml(streamToken) {
 async function handleTwimlRequest(req, res) {
   log('POST /twiml');
 
+  // eslint-disable-next-line no-useless-assignment -- assigned before first use inside try for readable error path
   let rawBody = '';
   try {
     rawBody = await readRequestBody(req, 32 * 1024);
@@ -320,11 +321,12 @@ class MediaStream {
     }
 
     switch (event) {
-      case 'connected':
+      case 'connected': {
         log('Media WS: connected', data);
         break;
+      }
 
-      case 'start':
+      case 'start': {
         if (this.started) {
           log('Media WS: duplicate start event');
           this.connection.close();
@@ -360,8 +362,9 @@ class MediaStream {
         homekit.setMulawPassthrough(this.mulawStream);
         homekit.triggerDoorbell();
         break;
+      }
 
-      case 'media':
+      case 'media': {
         if (!this.started || !this.currentCallSid) {
           log('Media WS: media received before start');
           this.connection.close();
@@ -387,15 +390,18 @@ class MediaStream {
         this.mulawStream.write(decoded);
         state.markActivity(this.currentCallSid, 'twilio-media');
         break;
+      }
 
-      case 'stop':
+      case 'stop': {
         log('Media WS: stop', data);
         this._teardown('twilio-stop');
         break;
+      }
 
-      default:
+      default: {
         log('Media WS: unknown event type', event);
         break;
+      }
     }
 
     this.messageCount++;

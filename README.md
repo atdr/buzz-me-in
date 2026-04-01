@@ -57,7 +57,7 @@ RPi: server.js (HTTP + WebSocket on one port)
 ### Raspberry Pi
 
 - Raspberry Pi 4 (2 GB RAM recommended) running Raspberry Pi OS (64-bit)
-- Node.js >= 18
+- Node.js >= 20
 - ffmpeg with libx264 and libopus: `sudo apt install ffmpeg`
 
 ### Accounts and services
