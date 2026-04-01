@@ -17,6 +17,16 @@ function optional(name) {
   return value && value.trim() ? value.trim() : null;
 }
 
+function parsePositiveInt(name, fallback) {
+  const raw = process.env[name];
+  const value = raw && raw.trim() ? raw.trim() : fallback;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    fail(`${name} must be a positive integer`);
+  }
+  return parsed;
+}
+
 function parsePort(name, fallback) {
   const raw = process.env[name];
   const value = raw && raw.trim() ? raw.trim() : fallback;
@@ -101,6 +111,10 @@ module.exports = {
     'XXX-XX-XXX'
   ),
   hapPort: parsePort('HAP_PORT', '47129'),
+  callSessionStaleSec: parsePositiveInt('CALL_SESSION_STALE_SEC', '900'),
+  wsMaxMessageBytes: parsePositiveInt('WS_MAX_MESSAGE_BYTES', '4096'),
+  twilioMediaPayloadMaxBytes: parsePositiveInt('TWILIO_MEDIA_PAYLOAD_MAX_BYTES', '512'),
+  shutdownGraceMs: parsePositiveInt('SHUTDOWN_GRACE_MS', '10000'),
   streamAuthSecret,
   streamAuthTtlSec: 90,
   statusApiToken,

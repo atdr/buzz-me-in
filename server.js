@@ -19,7 +19,13 @@ const STREAM_PATH = '/media';
 const STREAM_TOKEN_VERSION = 1;
 const STATUS_BEARER_PREFIX = 'Bearer ';
 const pendingStreamNonces = new Map();
+const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
+const MAX_TWILIO_MEDIA_PAYLOAD_BYTES = config.twilioMediaPayloadMaxBytes;
+const SHUTDOWN_GRACE_MS = config.shutdownGraceMs;
+const BASE64_PAYLOAD_REGEX = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 let ringtoneReady = false;
+let shuttingDown = false;
+const activeWsConnections = new Set();
 
 // ---------------------------------------------------------------------------
 // Ringtone — generated once at startup by ffmpeg.
@@ -81,12 +87,29 @@ const mediaws = new WebSocketServer({
   autoAcceptConnections: false,
 });
 
+state.setOnSessionStale(session => {
+  log('Call session stale; ending session', session.callSid);
+  if (session.wsConnection && typeof session.wsConnection.close === 'function') {
+    try {
+      session.wsConnection.close();
+    } catch (err) {
+      log('Failed to close stale call WebSocket:', err && err.message ? err.message : err);
+    }
+  }
+  homekit.endHapSession();
+});
+
 function log(message, ...args) {
   console.log(new Date().toISOString(), message, ...args);
 }
 
 function handleRequest(request, response) {
   try {
+    if (shuttingDown) {
+      response.writeHead(503);
+      response.end('Server shutting down');
+      return;
+    }
     const path = request.url ? request.url.split('?')[0] : '';
     if (request.method === 'POST' && path === '/twiml') {
       handleTwimlRequest(request, response).catch(err => {
@@ -174,11 +197,7 @@ dispatcher.onGet('/status', function(_req, res) {
     res.end('Unauthorized');
     return;
   }
-  const body = JSON.stringify(
-    state.activeCall
-      ? { active: true,  callSid: state.activeCall.callSid }
-      : { active: false }
-  );
+  const body = JSON.stringify(state.getStatus());
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(body);
 });
@@ -203,6 +222,10 @@ dispatcher.onGet('/readyz', function(_req, res) {
 // ---------------------------------------------------------------------------
 
 mediaws.on('request', function(request) {
+  if (shuttingDown) {
+    request.reject(503, 'Server shutting down');
+    return;
+  }
   const path = request.resourceURL && request.resourceURL.pathname;
   if (path !== STREAM_PATH) {
     request.reject(404, 'Not found');
@@ -219,6 +242,8 @@ mediaws.on('request', function(request) {
   }
 
   const connection = request.accept(null, request.origin);
+  activeWsConnections.add(connection);
+  connection.on('close', () => activeWsConnections.delete(connection));
   log('Media WS: connection accepted');
   new MediaStream(connection, verification.callSid);
 });
@@ -228,6 +253,9 @@ class MediaStream {
     this.connection   = connection;
     this.messageCount = 0;
     this.expectedCallSid = expectedCallSid;
+    this.currentCallSid = null;
+    this.started = false;
+    this.closed = false;
 
     // Raw mulaw bytes from Twilio flow into this PassThrough.
     // homekit.js pipes it into the inbound ffmpeg when a HAP session opens.
@@ -241,6 +269,11 @@ class MediaStream {
 
   processMessage(message) {
     if (message.type !== 'utf8') return;
+    if (message.utf8Data.length > MAX_WS_UTF8_BYTES) {
+      log('Media WS: message too large, closing connection');
+      this.connection.close();
+      return;
+    }
 
     let data;
     try {
@@ -251,13 +284,25 @@ class MediaStream {
       return;
     }
 
-    switch (data.event) {
+    const event = data && typeof data.event === 'string' ? data.event : null;
+    if (!event) {
+      log('Media WS: missing event field');
+      this.connection.close();
+      return;
+    }
+
+    switch (event) {
 
       case 'connected':
         log('Media WS: connected', data);
         break;
 
       case 'start':
+        if (this.started) {
+          log('Media WS: duplicate start event');
+          this.connection.close();
+          return;
+        }
         if (!data.start || typeof data.start.callSid !== 'string' || typeof data.start.streamSid !== 'string') {
           log('Media WS: invalid start payload');
           this.connection.close();
@@ -268,38 +313,57 @@ class MediaStream {
           this.connection.close();
           return;
         }
-        if (state.activeCall && state.activeCall.callSid !== data.start.callSid) {
-          log('Media WS: rejecting concurrent call while one is active');
+        const started = state.startCall({
+          callSid: data.start.callSid,
+          streamSid: data.start.streamSid,
+          wsConnection: this.connection,
+        });
+        if (!started.ok) {
+          log('Media WS: rejecting start -', started.reason);
           this.connection.close();
           return;
         }
         log('Media WS: start', data.start);
-        // callSid and streamSid only appear in the 'start' event.
-        state.activeCall = {
-          callSid:      data.start.callSid,
-          streamSid:    data.start.streamSid,
-          wsConnection: this.connection,
-        };
+        this.currentCallSid = data.start.callSid;
+        this.started = true;
         homekit.setMulawPassthrough(this.mulawStream);
         homekit.triggerDoorbell();
         break;
 
       case 'media':
+        if (!this.started || !this.currentCallSid) {
+          log('Media WS: media received before start');
+          this.connection.close();
+          return;
+        }
         if (!data.media || typeof data.media.payload !== 'string') {
           break;
         }
+        const payload = data.media.payload;
+        if (payload.length % 4 !== 0 || !BASE64_PAYLOAD_REGEX.test(payload)) {
+          log('Media WS: invalid media payload encoding');
+          this.connection.close();
+          return;
+        }
+        const decoded = Buffer.from(payload, 'base64');
+        if (decoded.length > MAX_TWILIO_MEDIA_PAYLOAD_BYTES) {
+          log('Media WS: media payload too large');
+          this.connection.close();
+          return;
+        }
         // base64-decode the mulaw payload and push it into the PassThrough.
         // homekit.js has already piped this stream to ffmpeg's stdin.
-        this.mulawStream.write(Buffer.from(data.media.payload, 'base64'));
+        this.mulawStream.write(decoded);
+        state.markActivity(this.currentCallSid, 'twilio-media');
         break;
 
       case 'stop':
         log('Media WS: stop', data);
-        // Caller hung up — signal HomeKit and clean up.
-        // Do NOT call hangUpCall here: the call is already gone.
-        this.mulawStream.end();
-        homekit.endHapSession();
-        state.activeCall = null;
+        this._teardown('twilio-stop');
+        break;
+
+      default:
+        log('Media WS: unknown event type', event);
         break;
     }
 
@@ -307,12 +371,18 @@ class MediaStream {
   }
 
   close() {
-    log('Media WS: closed after', this.messageCount, 'messages');
+    this._teardown('ws-close');
+  }
+
+  _teardown(reason) {
+    if (this.closed) return;
+    this.closed = true;
+    log('Media WS: session ended', { reason, messages: this.messageCount });
     // Guard: close() can fire without a prior 'stop' event (e.g. network drop).
     this.mulawStream.destroy();
-    if (state.activeCall) {
+    const { cleared } = state.clearIfConnection(this.connection, reason);
+    if (cleared) {
       homekit.endHapSession();
-      state.activeCall = null;
     }
   }
 }
@@ -444,11 +514,6 @@ function verifyAndConsumeStreamToken(token) {
 }
 
 function isAuthorizedForStatus(req) {
-  if (!config.statusApiToken) {
-    // Avoid relying on loopback checks: reverse proxies can make external
-    // clients appear local. Keep /status auth explicit and topology-agnostic.
-    return false;
-  }
   const authHeader = req.headers.authorization;
   if (typeof authHeader !== 'string' || !authHeader.startsWith(STATUS_BEARER_PREFIX)) {
     return false;
@@ -464,3 +529,32 @@ function isAuthorizedForStatus(req) {
 wsserver.listen(HTTP_SERVER_PORT, () => {
   log(`Server listening on port ${HTTP_SERVER_PORT}`);
 });
+
+function beginShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  log(`${signal} received; starting graceful shutdown`);
+
+  const forceExitTimer = setTimeout(() => {
+    log('Shutdown grace period exceeded; forcing exit');
+    process.exit(1);
+  }, SHUTDOWN_GRACE_MS);
+  if (typeof forceExitTimer.unref === 'function') forceExitTimer.unref();
+
+  const { cleared } = state.clearActiveCall('server-shutdown');
+  if (cleared) homekit.endHapSession();
+
+  for (const connection of activeWsConnections) {
+    try { connection.close(); } catch {}
+  }
+
+  wsserver.close(() => {
+    clearTimeout(forceExitTimer);
+    state.stop();
+    log('HTTP server closed; shutdown complete');
+    process.exit(0);
+  });
+}
+
+process.on('SIGINT',  () => beginShutdown('SIGINT'));
+process.on('SIGTERM', () => beginShutdown('SIGTERM'));

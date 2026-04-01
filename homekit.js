@@ -132,6 +132,10 @@ const activeSessions = new Map();
 // PassThrough stream set by server.js each time a Twilio call connects.
 let currentMulawStream = null;
 
+function getActiveCall() {
+  return state.getActiveCall();
+}
+
 // ---------------------------------------------------------------------------
 // Camera streaming delegate
 // ---------------------------------------------------------------------------
@@ -330,19 +334,22 @@ function _startSession(sessionID, s, callback) {
 
   // Forward each decoded mulaw chunk to Twilio as a media event.
   ffOut.stdout.on('data', chunk => {
-    if (!state.activeCall) return;
-    state.activeCall.wsConnection.sendUTF(JSON.stringify({
+    const activeCall = getActiveCall();
+    if (!activeCall || !activeCall.wsConnection || !activeCall.streamSid) return;
+    activeCall.wsConnection.sendUTF(JSON.stringify({
       event:     'media',
-      streamSid: state.activeCall.streamSid,
+      streamSid: activeCall.streamSid,
       media:     { payload: chunk.toString('base64') },
     }));
+    state.markActivity(activeCall.callSid, 'homekit-outbound-media');
   });
 
   activeSessions.set(sessionID, { ...s, ffIn, ffOut, sdpPath });
 
   // Stop the ringtone playing to the caller and hold the call silently.
-  if (state.activeCall) {
-    answerCall(state.activeCall.callSid).catch(e =>
+  const activeCall = getActiveCall();
+  if (activeCall) {
+    answerCall(activeCall.callSid).catch(e =>
       console.error('[Twilio] answerCall failed:', e.message)
     );
   }
@@ -369,8 +376,9 @@ function _stopSession(sessionID, hangUp) {
 
   activeSessions.delete(sessionID);
 
-  if (hangUp && state.activeCall) {
-    hangUpCall(state.activeCall.callSid).catch(e =>
+  const activeCall = getActiveCall();
+  if (hangUp && activeCall) {
+    hangUpCall(activeCall.callSid).catch(e =>
       console.error('[Twilio] hangup failed:', e.message)
     );
   }
@@ -405,9 +413,10 @@ lockService
   .getCharacteristic(Characteristic.LockTargetState)
   .onGet(() => Characteristic.LockTargetState.SECURED)
   .onSet(async value => {
-    if (value === Characteristic.LockTargetState.UNSECURED && state.activeCall) {
+    const activeCall = getActiveCall();
+    if (value === Characteristic.LockTargetState.UNSECURED && activeCall) {
       try {
-        await unlockDoor(state.activeCall.callSid);
+        await unlockDoor(activeCall.callSid);
       } catch (e) {
         console.error('[Twilio] unlock failed:', e.message);
       }
