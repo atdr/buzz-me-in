@@ -17,7 +17,7 @@ const BASE_ENV = {
 
 test('config loads valid configuration and defaults', () => {
   withEnv(BASE_ENV, () => {
-    const config = freshRequire('../../config');
+    const config = freshRequire('../../src/core/config.js');
     assert.equal(config.port, 8080);
     assert.equal(config.tunnelHostname, 'intercom.example.com');
     assert.equal(config.twilioWebhookBaseUrl, 'https://intercom.example.com');
@@ -30,18 +30,18 @@ test('config loads valid configuration and defaults', () => {
 
 test('config rejects missing required variables', () => {
   withEnv({ ...BASE_ENV, STATUS_API_TOKEN: undefined }, () => {
-    assert.throws(() => freshRequire('../../config'), /STATUS_API_TOKEN/);
+    assert.throws(() => freshRequire('../../src/core/config.js'), /STATUS_API_TOKEN/);
   });
 });
 
 test('config rejects malformed Twilio account SID', () => {
   withEnv({ ...BASE_ENV, TWILIO_ACCOUNT_SID: 'bad-sid' }, () => {
-    assert.throws(() => freshRequire('../../config'), /TWILIO_ACCOUNT_SID/);
+    assert.throws(() => freshRequire('../../src/core/config.js'), /TWILIO_ACCOUNT_SID/);
   });
 });
 
 test('config rejects non-positive integer tuning value', () => {
   withEnv({ ...BASE_ENV, WS_MAX_MESSAGE_BYTES: '0' }, () => {
-    assert.throws(() => freshRequire('../../config'), /WS_MAX_MESSAGE_BYTES/);
+    assert.throws(() => freshRequire('../../src/core/config.js'), /WS_MAX_MESSAGE_BYTES/);
   });
 });

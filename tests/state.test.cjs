@@ -21,8 +21,8 @@ let currentState = null;
 
 function loadState(extraEnv) {
   const restore = applyEnv({ ...VALID_ENV, ...extraEnv });
-  delete require.cache[require.resolve('../config')];
-  currentState = freshRequire('../../state');
+  delete require.cache[require.resolve('../src/core/config')];
+  currentState = freshRequire('../../src/core/state');
   return { state: currentState, restore };
 }
 
