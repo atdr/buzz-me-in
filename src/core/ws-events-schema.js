@@ -1,6 +1,7 @@
 'use strict';
 
 const { z } = require('zod');
+/** @import { WsEventParseResult, MediaPayloadParseResult } from './types.js' */
 
 const connectedEventSchema = z.object({
   event: z.literal('connected'),
@@ -31,12 +32,17 @@ const supportedEventSchema = z.discriminatedUnion('event', [
   mediaEventSchema,
   stopEventSchema,
 ]);
+/** @type {Set<string>} */
 const SUPPORTED_EVENTS = new Set(
   supportedEventSchema.options.map((schema) => schema.shape.event.value)
 );
 
 const BASE64_PAYLOAD_REGEX = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
+/**
+ * @param {unknown} raw
+ * @returns {WsEventParseResult}
+ */
 function parseTwilioWsEvent(raw) {
   const base = z.object({ event: z.string().min(1) }).safeParse(raw);
   if (!base.success) {
@@ -56,14 +62,23 @@ function parseTwilioWsEvent(raw) {
     return { ok: false, reason: `invalid ${base.data.event} payload` };
   }
 
-  return {
-    ok: true,
-    unsupported: false,
-    event: parsed.data.event,
-    data: parsed.data,
-  };
+  switch (parsed.data.event) {
+    case 'connected':
+      return { ok: true, unsupported: false, event: 'connected', data: parsed.data };
+    case 'start':
+      return { ok: true, unsupported: false, event: 'start', data: parsed.data };
+    case 'media':
+      return { ok: true, unsupported: false, event: 'media', data: parsed.data };
+    case 'stop':
+      return { ok: true, unsupported: false, event: 'stop', data: parsed.data };
+  }
 }
 
+/**
+ * @param {unknown} payload
+ * @param {number} maxDecodedBytes
+ * @returns {MediaPayloadParseResult}
+ */
 function parseTwilioMediaPayload(payload, maxDecodedBytes) {
   if (typeof payload !== 'string') {
     return { ok: false, reason: 'invalid media payload encoding' };

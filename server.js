@@ -14,6 +14,8 @@ const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('./src/core/ws-e
 const config = require('./src/core/config');
 const state = require('./src/core/state');
 const homekit = require('./homekit');
+/** @import { connection, request as WebSocketRequest, Message } from 'websocket' */
+/** @import { WsEventParseResult, WsEventParseOkSupported, StartCallResult, MediaPayloadParseResult, StreamTokenVerificationResult } from './src/core/types' */
 
 const HTTP_SERVER_PORT = config.port;
 const STREAM_PATH = '/media';
@@ -250,26 +252,33 @@ dispatcher.onGet('/readyz', function (_req, res) {
 // ---------------------------------------------------------------------------
 
 mediaws.on('request', function (request) {
+  /** @type {WebSocketRequest} */
+  const wsRequest = request;
   if (shuttingDown) {
-    request.reject(503, 'Server shutting down');
+    wsRequest.reject(503, 'Server shutting down');
     return;
   }
-  const path = request.resourceURL && request.resourceURL.pathname;
+  const path = wsRequest.resourceURL && wsRequest.resourceURL.pathname;
   if (path !== STREAM_PATH) {
-    request.reject(404, 'Not found');
+    wsRequest.reject(404, 'Not found');
     return;
   }
 
-  const query = request.resourceURL && request.resourceURL.query ? request.resourceURL.query : {};
+  const query =
+    wsRequest.resourceURL && wsRequest.resourceURL.query ? wsRequest.resourceURL.query : {};
   const token = typeof query.token === 'string' ? query.token : '';
+  /** @type {StreamTokenVerificationResult} */
   const verification = verifyAndConsumeStreamToken(token);
   if (!verification.ok) {
-    log('Media WS: rejected -', verification.reason);
-    request.reject(403, 'Unauthorized');
+    const verificationError = /** @type {import('./src/core/types').TokenVerificationError} */ (
+      verification
+    );
+    log('Media WS: rejected -', verificationError.reason);
+    wsRequest.reject(403, 'Unauthorized');
     return;
   }
 
-  const connection = request.accept(null, request.origin);
+  const connection = wsRequest.accept(null, wsRequest.origin);
   activeWsConnections.add(connection);
   connection.on('close', () => activeWsConnections.delete(connection));
   log('Media WS: connection accepted');
@@ -277,6 +286,10 @@ mediaws.on('request', function (request) {
 });
 
 class MediaStream {
+  /**
+   * @param {connection} connection
+   * @param {string | null} expectedCallSid
+   */
   constructor(connection, expectedCallSid) {
     this.connection = connection;
     this.messageCount = 0;
@@ -295,6 +308,9 @@ class MediaStream {
     connection.on('close', this.close.bind(this));
   }
 
+  /**
+   * @param {Message} message
+   */
   processMessage(message) {
     if (message.type !== 'utf8') return;
     if (message.utf8Data.length > MAX_WS_UTF8_BYTES) {
@@ -312,17 +328,21 @@ class MediaStream {
       return;
     }
 
-    const parsed = parseTwilioWsEvent(rawData);
-    if (!parsed.ok) {
-      log('Media WS: invalid event payload', parsed.reason);
+    const parsedResult = parseTwilioWsEvent(rawData);
+    if (!parsedResult.ok) {
+      const parsedError = /** @type {import('./src/core/types').WsEventParseError} */ (
+        parsedResult
+      );
+      log('Media WS: invalid event payload', parsedError.reason);
       this.connection.close();
       return;
     }
-    if (parsed.unsupported) {
-      log('Media WS: unknown event type', parsed.event);
+    if (parsedResult.unsupported) {
+      log('Media WS: unknown event type', parsedResult.event);
       this.messageCount++;
       return;
     }
+    const parsed = /** @type {import('./src/core/types').WsEventParseOkSupported} */ (parsedResult);
 
     switch (parsed.event) {
       case 'connected': {
@@ -348,7 +368,8 @@ class MediaStream {
           wsConnection: this.connection,
         });
         if (!started.ok) {
-          log('Media WS: rejecting start -', started.reason);
+          const startError = /** @type {{ ok: false, reason: string }} */ (started);
+          log('Media WS: rejecting start -', startError.reason);
           this.connection.close();
           return;
         }
@@ -371,7 +392,9 @@ class MediaStream {
           config.twilioMediaPayloadMaxBytes
         );
         if (!mediaPayload.ok) {
-          log(`Media WS: ${mediaPayload.reason}`);
+          const mediaPayloadError =
+            /** @type {import('./src/core/types').MediaPayloadParseError} */ (mediaPayload);
+          log(`Media WS: ${mediaPayloadError.reason}`);
           this.connection.close();
           return;
         }
@@ -409,6 +432,11 @@ class MediaStream {
   }
 }
 
+/**
+ * @param {import('http').IncomingMessage} req
+ * @param {number} maxBytes
+ * @returns {Promise<string>}
+ */
 function readRequestBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
     let total = 0;
@@ -427,7 +455,12 @@ function readRequestBody(req, maxBytes) {
   });
 }
 
+/**
+ * @param {string} body
+ * @returns {Record<string, string | string[]>}
+ */
 function parseFormUrlEncoded(body) {
+  /** @type {Record<string, string | string[]>} */
   const parsed = {};
   const params = new URLSearchParams(body);
   for (const [key, value] of params) {
@@ -441,6 +474,11 @@ function parseFormUrlEncoded(body) {
   return parsed;
 }
 
+/**
+ * @param {import('http').IncomingMessage} req
+ * @param {string} rawBody
+ * @returns {boolean}
+ */
 function isValidTwilioRequest(req, rawBody) {
   const signature = req.headers['x-twilio-signature'];
   if (typeof signature !== 'string' || !signature) return false;
@@ -478,6 +516,10 @@ function pruneExpiredNonces() {
   }
 }
 
+/**
+ * @param {string | null} callSid
+ * @returns {string}
+ */
 function issueStreamToken(callSid) {
   pruneExpiredNonces();
 
@@ -502,6 +544,10 @@ function issueStreamToken(callSid) {
   return `${payloadEncoded}.${signature}`;
 }
 
+/**
+ * @param {string} token
+ * @returns {{ ok: true, callSid: string | null } | { ok: false, reason: string }}
+ */
 function verifyAndConsumeStreamToken(token) {
   pruneExpiredNonces();
   if (!token) return { ok: false, reason: 'missing token' };
@@ -544,6 +590,10 @@ function verifyAndConsumeStreamToken(token) {
   return { ok: true, callSid: payload.callSid || null };
 }
 
+/**
+ * @param {import('http').IncomingMessage} req
+ * @returns {boolean}
+ */
 function isAuthorizedForStatus(req) {
   const authHeader = req.headers.authorization;
   if (typeof authHeader !== 'string' || !authHeader.startsWith(STATUS_BEARER_PREFIX)) {

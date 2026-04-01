@@ -62,7 +62,12 @@ function getAvailablePort() {
     const srv = net.createServer();
     srv.unref();
     srv.listen(0, '0.0.0.0', () => {
-      const { port } = srv.address();
+      const addr = srv.address();
+      if (!addr || typeof addr === 'string') {
+        reject(new Error('failed to allocate ephemeral port'));
+        return;
+      }
+      const { port } = addr;
       srv.close(() => resolve(port));
     });
     srv.on('error', reject);
