@@ -8,7 +8,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "node --check \"server.js\" && node --check \"homekit.js\" && node --check \"twilio-api.js\" && node --check \"state.js\" && node --check \"config.js\"",
+    "check": "node --check \"server.js\" \"homekit.js\" \"twilio-api.js\" \"state.js\" \"config.js\" \"ws-events-schema.js\"",
     "test": "node --test"
   },
   "license": "MIT",
@@ -27,7 +27,8 @@
     "httpdispatcher": "^2.1.2",
     "qrcode-terminal": "^0.12.0",
     "twilio": "^5.3.7",
-    "websocket": "^1.0.35"
+    "websocket": "^1.0.35",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
