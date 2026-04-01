@@ -31,6 +31,9 @@ const supportedEventSchema = z.discriminatedUnion('event', [
   mediaEventSchema,
   stopEventSchema,
 ]);
+const SUPPORTED_EVENTS = new Set(
+  supportedEventSchema.options.map((schema) => schema.shape.event.value)
+);
 
 const BASE64_PAYLOAD_REGEX = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 
@@ -40,7 +43,7 @@ function parseTwilioWsEvent(raw) {
     return { ok: false, reason: 'missing event field' };
   }
 
-  if (!['connected', 'start', 'media', 'stop'].includes(base.data.event)) {
+  if (!SUPPORTED_EVENTS.has(base.data.event)) {
     return {
       ok: true,
       unsupported: true,

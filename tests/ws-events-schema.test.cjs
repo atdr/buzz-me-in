@@ -2,33 +2,10 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { withEnv, freshRequire } = require('./helpers/env.cjs');
-
-const BASE_ENV = {
-  TWILIO_ACCOUNT_SID: 'AC12345678901234567890123456789012',
-  TWILIO_AUTH_TOKEN: 'test_auth_token',
-  TWILIO_PHONE_NUMBER: '+15551234567',
-  PORT: '8080',
-  TUNNEL_HOSTNAME: 'intercom.example.com',
-  STREAM_AUTH_SECRET: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
-  STATUS_API_TOKEN: '1234567890abcdef',
-  HAP_USERNAME: 'AA:BB:CC:DD:EE:11',
-  HAP_PINCODE: '123-45-678',
-  HAP_PORT: '47129',
-};
-
-function loadSchemaModule() {
-  let loaded;
-  withEnv(BASE_ENV, () => {
-    loaded = freshRequire('../../ws-events-schema');
-  });
-  return loaded;
-}
-
-const { parseTwilioWsEvent, parseTwilioMediaPayload } = loadSchemaModule();
+const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('../ws-events-schema');
 
 describe('ws event schema parsing', () => {
-  test('parses valid connected/start/stop events', () => {
+  test('parses valid connected/start/media/stop events', () => {
     const connected = parseTwilioWsEvent({ event: 'connected' });
     assert.equal(connected.ok, true);
     assert.equal(connected.data.event, 'connected');
@@ -40,6 +17,13 @@ describe('ws event schema parsing', () => {
     assert.equal(start.ok, true);
     assert.equal(start.data.start.callSid, 'CA123');
     assert.equal(start.data.start.streamSid, 'MZ123');
+
+    const media = parseTwilioWsEvent({
+      event: 'media',
+      media: { payload: 'aGVsbG8=' },
+    });
+    assert.equal(media.ok, true);
+    assert.equal(media.data.media.payload, 'aGVsbG8=');
 
     const stop = parseTwilioWsEvent({ event: 'stop' });
     assert.equal(stop.ok, true);
@@ -60,6 +44,22 @@ describe('ws event schema parsing', () => {
     });
     assert.equal(result.ok, false);
     assert.equal(result.reason, 'invalid start payload');
+  });
+
+  test('rejects malformed media event shape', () => {
+    const result = parseTwilioWsEvent({ event: 'media' });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'invalid media payload');
+  });
+
+  test('rejects null and missing event payloads', () => {
+    const nullResult = parseTwilioWsEvent(null);
+    assert.equal(nullResult.ok, false);
+    assert.equal(nullResult.reason, 'missing event field');
+
+    const emptyResult = parseTwilioWsEvent({});
+    assert.equal(emptyResult.ok, false);
+    assert.equal(emptyResult.reason, 'missing event field');
   });
 });
 
