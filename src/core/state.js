@@ -1,6 +1,8 @@
 'use strict';
 
 const config = require('./config');
+const { createLogger } = require('./log');
+const logger = createLogger({ component: 'state' });
 
 /** @import { connection as WebSocketConnection } from 'websocket' */
 /** @import { CallSession, CallStatus, StartCallResult, ClearCallResult, ClearedCallSession } from './types.js' */
@@ -134,10 +136,12 @@ class CallSessionManager {
     try {
       this._onSessionStale(session);
     } catch (err) {
-      console.error(
-        '[state] stale session handler failed:',
-        err && err.message ? err.message : err
-      );
+      logger.error('stale session handler failed', {
+        event: 'stale-handler-failed',
+        reason: 'handler-throw',
+        callSid: session.callSid,
+        error: err,
+      });
     }
   }
 }

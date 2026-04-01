@@ -129,4 +129,17 @@
  * @typedef {{ cleared: true, session: ClearedCallSession } | { cleared: false, session: null }} ClearCallResult
  */
 
+/**
+ * @typedef {{
+ *   ts?: string,
+ *   level?: 'debug' | 'info' | 'warn' | 'error',
+ *   message?: string,
+ *   component?: string,
+ *   callSid?: string,
+ *   event?: string,
+ *   reason?: string,
+ *   durationMs?: number
+ * } & Record<string, unknown>} LogFields
+ */
+
 module.exports = {};
