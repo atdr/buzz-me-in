@@ -8,7 +8,8 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "node --check \"server.js\" && node --check \"homekit.js\" && node --check \"twilio-api.js\" && node --check \"state.js\" && node --check \"config.js\""
+    "check": "node --check \"server.js\" && node --check \"homekit.js\" && node --check \"twilio-api.js\" && node --check \"state.js\" && node --check \"config.js\"",
+    "test": "node --test"
   },
   "license": "MIT",
   "repository": {
@@ -33,6 +34,7 @@
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.4.0",
-    "prettier": "^3.8.1"
+    "prettier": "^3.8.1",
+    "vitest": "^4.1.2"
   }
 }
