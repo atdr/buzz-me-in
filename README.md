@@ -57,7 +57,7 @@ RPi: server.js (HTTP + WebSocket on one port)
 ### Raspberry Pi
 
 - Raspberry Pi 4 (2 GB RAM recommended) running Raspberry Pi OS (64-bit)
-- Node.js >= 18
+- Node.js >= 20
 - ffmpeg with libx264 and libopus: `sudo apt install ffmpeg`
 
 ### Accounts and services
@@ -85,14 +85,14 @@ cp .env.example .env
 
 Edit `.env` and fill in:
 
-| Variable | Where to find it |
-| --- | --- |
-| `TWILIO_ACCOUNT_SID` | [Twilio Console](https://console.twilio.com) → Account Info |
-| `TWILIO_AUTH_TOKEN` | Twilio Console → Account Info |
-| `TWILIO_PHONE_NUMBER` | Twilio Console → Phone Numbers |
-| `HAP_USERNAME` | Generate once (see below) |
-| `HAP_PINCODE` | Your choice — format `XXX-XX-XXX` |
-| `HAP_PORT` | Default `47129` — must be open in your firewall/router |
+| Variable              | Where to find it                                            |
+| --------------------- | ----------------------------------------------------------- |
+| `TWILIO_ACCOUNT_SID`  | [Twilio Console](https://console.twilio.com) → Account Info |
+| `TWILIO_AUTH_TOKEN`   | Twilio Console → Account Info                               |
+| `TWILIO_PHONE_NUMBER` | Twilio Console → Phone Numbers                              |
+| `HAP_USERNAME`        | Generate once (see below)                                   |
+| `HAP_PINCODE`         | Your choice — format `XXX-XX-XXX`                           |
+| `HAP_PORT`            | Default `47129` — must be open in your firewall/router      |
 
 Generate unique values for `HAP_USERNAME` and `HAP_PINCODE`:
 
@@ -378,20 +378,20 @@ curl https://intercom.yourdomain.com/readyz
 
 See `.env.example` for the full list. All are required unless marked optional.
 
-| Variable | Description |
-| --- | --- |
-| `TWILIO_ACCOUNT_SID` | Twilio account SID (starts with `AC`) |
-| `TWILIO_AUTH_TOKEN` | Twilio auth token |
-| `TWILIO_PHONE_NUMBER` | Twilio number receiving intercom calls (E.164) |
-| `PORT` | HTTP server port (default: `8080`) |
-| `TUNNEL_HOSTNAME` | Cloudflare Tunnel hostname used to build the `wss://` URL in TwiML |
-| `TWILIO_WEBHOOK_BASE_URL` | Optional absolute base URL used for Twilio signature validation (default: `https://{TUNNEL_HOSTNAME}`) |
-| `STREAM_AUTH_SECRET` | Required secret (min 32 chars) used to sign one-time media WebSocket tokens |
-| `STATUS_API_TOKEN` | Required bearer token (min 16 chars) for `/status` |
-| `HAP_USERNAME` | HAP accessory MAC-style address — must be unique on LAN |
-| `HAP_PINCODE` | HomeKit pairing code (`XXX-XX-XXX`) |
-| `HAP_PORT` | HAP mDNS port (default: `47129`) |
-| `CALL_SESSION_STALE_SEC` | Time before an inactive active-call session is force-cleaned (default: `900`) |
-| `WS_MAX_MESSAGE_BYTES` | Maximum accepted UTF-8 WebSocket message size (default: `4096`) |
-| `TWILIO_MEDIA_PAYLOAD_MAX_BYTES` | Maximum decoded Twilio media chunk size in bytes (default: `512`) |
-| `SHUTDOWN_GRACE_MS` | Graceful shutdown timeout before forced exit (default: `10000`) |
+| Variable                         | Description                                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `TWILIO_ACCOUNT_SID`             | Twilio account SID (starts with `AC`)                                                                  |
+| `TWILIO_AUTH_TOKEN`              | Twilio auth token                                                                                      |
+| `TWILIO_PHONE_NUMBER`            | Twilio number receiving intercom calls (E.164)                                                         |
+| `PORT`                           | HTTP server port (default: `8080`)                                                                     |
+| `TUNNEL_HOSTNAME`                | Cloudflare Tunnel hostname used to build the `wss://` URL in TwiML                                     |
+| `TWILIO_WEBHOOK_BASE_URL`        | Optional absolute base URL used for Twilio signature validation (default: `https://{TUNNEL_HOSTNAME}`) |
+| `STREAM_AUTH_SECRET`             | Required secret (min 32 chars) used to sign one-time media WebSocket tokens                            |
+| `STATUS_API_TOKEN`               | Required bearer token (min 16 chars) for `/status`                                                     |
+| `HAP_USERNAME`                   | HAP accessory MAC-style address — must be unique on LAN                                                |
+| `HAP_PINCODE`                    | HomeKit pairing code (`XXX-XX-XXX`)                                                                    |
+| `HAP_PORT`                       | HAP mDNS port (default: `47129`)                                                                       |
+| `CALL_SESSION_STALE_SEC`         | Time before an inactive active-call session is force-cleaned (default: `900`)                          |
+| `WS_MAX_MESSAGE_BYTES`           | Maximum accepted UTF-8 WebSocket message size (default: `4096`)                                        |
+| `TWILIO_MEDIA_PAYLOAD_MAX_BYTES` | Maximum decoded Twilio media chunk size in bytes (default: `512`)                                      |
+| `SHUTDOWN_GRACE_MS`              | Graceful shutdown timeout before forced exit (default: `10000`)                                        |

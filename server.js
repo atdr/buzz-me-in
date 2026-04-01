@@ -1,17 +1,17 @@
 // based on https://github.com/twilio/media-streams/blob/master/node/basic/README.md
 'use strict';
 
-const fs   = require('fs');
+const fs = require('fs');
 const http = require('http');
 const twilio = require('twilio');
 const crypto = require('crypto');
 const { PassThrough } = require('stream');
-const { spawn }       = require('child_process');
-const HttpDispatcher  = require('httpdispatcher');
+const { spawn } = require('child_process');
+const HttpDispatcher = require('httpdispatcher');
 const WebSocketServer = require('websocket').server;
 
-const config  = require('./config');
-const state   = require('./state');
+const config = require('./config');
+const state = require('./state');
 const homekit = require('./homekit');
 
 const HTTP_SERVER_PORT = config.port;
@@ -41,16 +41,34 @@ function generateRingtone() {
     //   400ms on, 200ms off, 400ms on, 2000ms off  (= 3 s, looped by Twilio)
     // Each burst is a 400Hz + 450Hz dual tone mixed at half amplitude.
     const ff = spawn('ffmpeg', [
-      '-y', '-loglevel', 'warning',
+      '-y',
+      '-loglevel',
+      'warning',
       // Burst 1: 400ms
-      '-f', 'lavfi', '-i', 'sine=frequency=400:duration=0.4',
-      '-f', 'lavfi', '-i', 'sine=frequency=450:duration=0.4',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=400:duration=0.4',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=450:duration=0.4',
       // Burst 2: 400ms
-      '-f', 'lavfi', '-i', 'sine=frequency=400:duration=0.4',
-      '-f', 'lavfi', '-i', 'sine=frequency=450:duration=0.4',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=400:duration=0.4',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=450:duration=0.4',
       // Silence source
-      '-f', 'lavfi', '-i', 'anullsrc=r=8000:cl=mono',
-      '-filter_complex', [
+      '-f',
+      'lavfi',
+      '-i',
+      'anullsrc=r=8000:cl=mono',
+      '-filter_complex',
+      [
         // Mix each burst pair
         '[0][1]amix=inputs=2:duration=shortest,volume=0.5[b1]',
         '[2][3]amix=inputs=2:duration=shortest,volume=0.5[b2]',
@@ -60,11 +78,15 @@ function generateRingtone() {
         // Concatenate: burst1, gap, burst2, tail
         '[b1][gap][b2][tail]concat=n=4:v=0:a=1[out]',
       ].join(';'),
-      '-map', '[out]',
-      '-ar', '8000', '-ac', '1',
+      '-map',
+      '[out]',
+      '-ar',
+      '8000',
+      '-ac',
+      '1',
       RINGTONE_PATH,
     ]);
-    ff.on('close', code => {
+    ff.on('close', (code) => {
       if (code === 0) {
         log('Ringtone generated at', RINGTONE_PATH);
         ringtoneReady = true;
@@ -73,21 +95,21 @@ function generateRingtone() {
       }
       resolve();
     });
-    ff.stderr.on('data', d => process.stderr.write('[ringtone ffmpeg] ' + d));
+    ff.stderr.on('data', (d) => process.stderr.write('[ringtone ffmpeg] ' + d));
   });
 }
 
 generateRingtone();
 
 const dispatcher = new HttpDispatcher();
-const wsserver   = http.createServer(handleRequest);
+const wsserver = http.createServer(handleRequest);
 
 const mediaws = new WebSocketServer({
   httpServer: wsserver,
   autoAcceptConnections: false,
 });
 
-state.setOnSessionStale(session => {
+state.setOnSessionStale((session) => {
   log('Call session stale; ending session', session.callSid);
   if (session.wsConnection && typeof session.wsConnection.close === 'function') {
     try {
@@ -112,7 +134,7 @@ function handleRequest(request, response) {
     }
     const path = request.url ? request.url.split('?')[0] : '';
     if (request.method === 'POST' && path === '/twiml') {
-      handleTwimlRequest(request, response).catch(err => {
+      handleTwimlRequest(request, response).catch((err) => {
         console.error(err);
         if (!response.headersSent) response.writeHead(500);
         response.end('Internal Server Error');
@@ -144,6 +166,7 @@ function buildTwiml(streamToken) {
 async function handleTwimlRequest(req, res) {
   log('POST /twiml');
 
+  // eslint-disable-next-line no-useless-assignment -- assigned before first use inside try for readable error path
   let rawBody = '';
   try {
     rawBody = await readRequestBody(req, 32 * 1024);
@@ -162,7 +185,9 @@ async function handleTwimlRequest(req, res) {
   }
 
   const formData = parseFormUrlEncoded(rawBody);
-  const streamToken = issueStreamToken(typeof formData.CallSid === 'string' ? formData.CallSid : null);
+  const streamToken = issueStreamToken(
+    typeof formData.CallSid === 'string' ? formData.CallSid : null
+  );
   const body = buildTwiml(streamToken);
   res.writeHead(200, {
     'Content-Type': 'text/xml',
@@ -175,14 +200,18 @@ async function handleTwimlRequest(req, res) {
  * GET /ringtone.wav
  * UK-style ring tone served to Twilio via <Play loop="0">.
  */
-dispatcher.onGet('/ringtone', function(_req, res) {
+dispatcher.onGet('/ringtone', function (_req, res) {
   fs.readFile(RINGTONE_PATH, (err, data) => {
     if (err) {
       res.writeHead(503);
       res.end('Ringtone not ready');
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': data.length, 'Cache-Control': 'no-store' });
+    res.writeHead(200, {
+      'Content-Type': 'audio/wav',
+      'Content-Length': data.length,
+      'Cache-Control': 'no-store',
+    });
     res.end(data);
   });
 });
@@ -191,7 +220,7 @@ dispatcher.onGet('/ringtone', function(_req, res) {
  * GET /status — quick health/debug endpoint
  * Returns the current active call info (callSid only, no credentials).
  */
-dispatcher.onGet('/status', function(_req, res) {
+dispatcher.onGet('/status', function (_req, res) {
   if (!isAuthorizedForStatus(_req)) {
     res.writeHead(401);
     res.end('Unauthorized');
@@ -202,13 +231,13 @@ dispatcher.onGet('/status', function(_req, res) {
   res.end(body);
 });
 
-dispatcher.onGet('/healthz', function(_req, res) {
+dispatcher.onGet('/healthz', function (_req, res) {
   const body = JSON.stringify({ ok: true });
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(body);
 });
 
-dispatcher.onGet('/readyz', function(_req, res) {
+dispatcher.onGet('/readyz', function (_req, res) {
   const body = JSON.stringify({
     ok: ringtoneReady,
     checks: { ringtoneGenerated: ringtoneReady },
@@ -221,7 +250,7 @@ dispatcher.onGet('/readyz', function(_req, res) {
 // WebSocket media stream
 // ---------------------------------------------------------------------------
 
-mediaws.on('request', function(request) {
+mediaws.on('request', function (request) {
   if (shuttingDown) {
     request.reject(503, 'Server shutting down');
     return;
@@ -250,7 +279,7 @@ mediaws.on('request', function(request) {
 
 class MediaStream {
   constructor(connection, expectedCallSid) {
-    this.connection   = connection;
+    this.connection = connection;
     this.messageCount = 0;
     this.expectedCallSid = expectedCallSid;
     this.currentCallSid = null;
@@ -264,7 +293,7 @@ class MediaStream {
     this.mulawStream = new PassThrough({ highWaterMark: 32768 });
 
     connection.on('message', this.processMessage.bind(this));
-    connection.on('close',   this.close.bind(this));
+    connection.on('close', this.close.bind(this));
   }
 
   processMessage(message) {
@@ -292,18 +321,22 @@ class MediaStream {
     }
 
     switch (event) {
-
-      case 'connected':
+      case 'connected': {
         log('Media WS: connected', data);
         break;
+      }
 
-      case 'start':
+      case 'start': {
         if (this.started) {
           log('Media WS: duplicate start event');
           this.connection.close();
           return;
         }
-        if (!data.start || typeof data.start.callSid !== 'string' || typeof data.start.streamSid !== 'string') {
+        if (
+          !data.start ||
+          typeof data.start.callSid !== 'string' ||
+          typeof data.start.streamSid !== 'string'
+        ) {
           log('Media WS: invalid start payload');
           this.connection.close();
           return;
@@ -329,8 +362,9 @@ class MediaStream {
         homekit.setMulawPassthrough(this.mulawStream);
         homekit.triggerDoorbell();
         break;
+      }
 
-      case 'media':
+      case 'media': {
         if (!this.started || !this.currentCallSid) {
           log('Media WS: media received before start');
           this.connection.close();
@@ -356,15 +390,18 @@ class MediaStream {
         this.mulawStream.write(decoded);
         state.markActivity(this.currentCallSid, 'twilio-media');
         break;
+      }
 
-      case 'stop':
+      case 'stop': {
         log('Media WS: stop', data);
         this._teardown('twilio-stop');
         break;
+      }
 
-      default:
+      default: {
         log('Media WS: unknown event type', event);
         break;
+      }
     }
 
     this.messageCount++;
@@ -391,7 +428,7 @@ function readRequestBody(req, maxBytes) {
   return new Promise((resolve, reject) => {
     let total = 0;
     const chunks = [];
-    req.on('data', chunk => {
+    req.on('data', (chunk) => {
       total += chunk.length;
       if (total > maxBytes) {
         reject(new Error('Body too large'));
@@ -474,7 +511,9 @@ function issueStreamToken(callSid) {
   };
 
   const payloadEncoded = toBase64Url(Buffer.from(JSON.stringify(payload), 'utf8'));
-  const signature = toBase64Url(crypto.createHmac('sha256', config.streamAuthSecret).update(payloadEncoded).digest());
+  const signature = toBase64Url(
+    crypto.createHmac('sha256', config.streamAuthSecret).update(payloadEncoded).digest()
+  );
   return `${payloadEncoded}.${signature}`;
 }
 
@@ -485,7 +524,9 @@ function verifyAndConsumeStreamToken(token) {
   const pieces = token.split('.');
   if (pieces.length !== 2) return { ok: false, reason: 'invalid token format' };
   const [payloadEncoded, providedSig] = pieces;
-  const expectedSig = toBase64Url(crypto.createHmac('sha256', config.streamAuthSecret).update(payloadEncoded).digest());
+  const expectedSig = toBase64Url(
+    crypto.createHmac('sha256', config.streamAuthSecret).update(payloadEncoded).digest()
+  );
   if (!safeEqualString(providedSig, expectedSig)) {
     return { ok: false, reason: 'invalid token signature' };
   }
@@ -498,7 +539,12 @@ function verifyAndConsumeStreamToken(token) {
   }
 
   const now = Math.floor(Date.now() / 1000);
-  if (payload.v !== STREAM_TOKEN_VERSION || !payload.nonce || payload.exp <= now || payload.iat > now + 30) {
+  if (
+    payload.v !== STREAM_TOKEN_VERSION ||
+    !payload.nonce ||
+    payload.exp <= now ||
+    payload.iat > now + 30
+  ) {
     return { ok: false, reason: 'expired or malformed token' };
   }
 
@@ -545,7 +591,9 @@ function beginShutdown(signal) {
   if (cleared) homekit.endHapSession();
 
   for (const connection of activeWsConnections) {
-    try { connection.close(); } catch {}
+    try {
+      connection.close();
+    } catch {}
   }
 
   wsserver.close(() => {
@@ -556,5 +604,5 @@ function beginShutdown(signal) {
   });
 }
 
-process.on('SIGINT',  () => beginShutdown('SIGINT'));
+process.on('SIGINT', () => beginShutdown('SIGINT'));
 process.on('SIGTERM', () => beginShutdown('SIGTERM'));

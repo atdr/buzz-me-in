@@ -97,7 +97,10 @@ class CallSessionManager {
     try {
       this._onSessionStale(session);
     } catch (err) {
-      console.error('[state] stale session handler failed:', err && err.message ? err.message : err);
+      console.error(
+        '[state] stale session handler failed:',
+        err && err.message ? err.message : err
+      );
     }
   }
 }
