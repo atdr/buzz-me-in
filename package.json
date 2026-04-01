@@ -8,7 +8,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "node --check \"server.js\" \"homekit.js\" \"twilio-api.js\" \"state.js\" \"config.js\" \"ws-events-schema.js\"",
+    "check": "node --check \"server.js\" \"homekit.js\" \"twilio-api.js\" \"state.js\" \"config.js\" \"ws-events-schema.js\" \"src/core/config.js\" \"src/core/state.js\" \"src/core/ws-events-schema.js\"",
     "test": "node --test"
   },
   "license": "MIT",
