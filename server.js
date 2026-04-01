@@ -9,6 +9,7 @@ const { PassThrough } = require('stream');
 const { spawn } = require('child_process');
 const HttpDispatcher = require('httpdispatcher');
 const WebSocketServer = require('websocket').server;
+const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('./ws-events-schema');
 
 const config = require('./config');
 const state = require('./state');
@@ -20,9 +21,7 @@ const STREAM_TOKEN_VERSION = 1;
 const STATUS_BEARER_PREFIX = 'Bearer ';
 const pendingStreamNonces = new Map();
 const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
-const MAX_TWILIO_MEDIA_PAYLOAD_BYTES = config.twilioMediaPayloadMaxBytes;
 const SHUTDOWN_GRACE_MS = config.shutdownGraceMs;
-const BASE64_PAYLOAD_REGEX = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 let ringtoneReady = false;
 let shuttingDown = false;
 const activeWsConnections = new Set();
@@ -304,25 +303,30 @@ class MediaStream {
       return;
     }
 
-    let data;
+    let rawData;
     try {
-      data = JSON.parse(message.utf8Data);
+      rawData = JSON.parse(message.utf8Data);
     } catch {
       log('Media WS: invalid JSON message');
       this.connection.close();
       return;
     }
 
-    const event = data && typeof data.event === 'string' ? data.event : null;
-    if (!event) {
-      log('Media WS: missing event field');
+    const parsed = parseTwilioWsEvent(rawData);
+    if (!parsed.ok) {
+      log('Media WS: invalid event payload', parsed.reason);
       this.connection.close();
       return;
     }
+    if (parsed.unsupported) {
+      log('Media WS: unknown event type', parsed.event);
+      this.messageCount++;
+      return;
+    }
 
-    switch (event) {
+    switch (parsed.event) {
       case 'connected': {
-        log('Media WS: connected', data);
+        log('Media WS: connected', parsed.data);
         break;
       }
 
@@ -332,23 +336,15 @@ class MediaStream {
           this.connection.close();
           return;
         }
-        if (
-          !data.start ||
-          typeof data.start.callSid !== 'string' ||
-          typeof data.start.streamSid !== 'string'
-        ) {
-          log('Media WS: invalid start payload');
-          this.connection.close();
-          return;
-        }
-        if (this.expectedCallSid && this.expectedCallSid !== data.start.callSid) {
+        const start = parsed.data.start;
+        if (this.expectedCallSid && this.expectedCallSid !== start.callSid) {
           log('Media WS: start rejected due to callSid mismatch');
           this.connection.close();
           return;
         }
         const started = state.startCall({
-          callSid: data.start.callSid,
-          streamSid: data.start.streamSid,
+          callSid: start.callSid,
+          streamSid: start.streamSid,
           wsConnection: this.connection,
         });
         if (!started.ok) {
@@ -356,8 +352,8 @@ class MediaStream {
           this.connection.close();
           return;
         }
-        log('Media WS: start', data.start);
-        this.currentCallSid = data.start.callSid;
+        log('Media WS: start', start);
+        this.currentCallSid = start.callSid;
         this.started = true;
         homekit.setMulawPassthrough(this.mulawStream);
         homekit.triggerDoorbell();
@@ -370,36 +366,25 @@ class MediaStream {
           this.connection.close();
           return;
         }
-        if (!data.media || typeof data.media.payload !== 'string') {
-          break;
-        }
-        const payload = data.media.payload;
-        if (payload.length % 4 !== 0 || !BASE64_PAYLOAD_REGEX.test(payload)) {
-          log('Media WS: invalid media payload encoding');
-          this.connection.close();
-          return;
-        }
-        const decoded = Buffer.from(payload, 'base64');
-        if (decoded.length > MAX_TWILIO_MEDIA_PAYLOAD_BYTES) {
-          log('Media WS: media payload too large');
+        const mediaPayload = parseTwilioMediaPayload(
+          parsed.data.media.payload,
+          config.twilioMediaPayloadMaxBytes
+        );
+        if (!mediaPayload.ok) {
+          log(`Media WS: ${mediaPayload.reason}`);
           this.connection.close();
           return;
         }
         // base64-decode the mulaw payload and push it into the PassThrough.
         // homekit.js has already piped this stream to ffmpeg's stdin.
-        this.mulawStream.write(decoded);
+        this.mulawStream.write(mediaPayload.decoded);
         state.markActivity(this.currentCallSid, 'twilio-media');
         break;
       }
 
       case 'stop': {
-        log('Media WS: stop', data);
+        log('Media WS: stop', parsed.data);
         this._teardown('twilio-stop');
-        break;
-      }
-
-      default: {
-        log('Media WS: unknown event type', event);
         break;
       }
     }
