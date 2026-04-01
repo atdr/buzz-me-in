@@ -15,7 +15,7 @@ const config = require('./src/core/config');
 const state = require('./src/core/state');
 const homekit = require('./homekit');
 /** @import { connection, request as WebSocketRequest, Message } from 'websocket' */
-/** @import { WsEventParseResult, WsEventParseOkSupported, StartCallResult, MediaPayloadParseResult, StreamTokenVerificationResult } from './src/core/types' */
+/** @import { WsEventParseResult, WsEventParseOkSupported, StartCallResult, MediaPayloadParseResult, StreamTokenVerificationResult, TokenVerificationError, WsEventParseError, MediaPayloadParseError } from './src/core/types' */
 
 const HTTP_SERVER_PORT = config.port;
 const STREAM_PATH = '/media';
@@ -270,9 +270,7 @@ mediaws.on('request', function (request) {
   /** @type {StreamTokenVerificationResult} */
   const verification = verifyAndConsumeStreamToken(token);
   if (!verification.ok) {
-    const verificationError = /** @type {import('./src/core/types').TokenVerificationError} */ (
-      verification
-    );
+    const verificationError = /** @type {TokenVerificationError} */ (verification);
     log('Media WS: rejected -', verificationError.reason);
     wsRequest.reject(403, 'Unauthorized');
     return;
@@ -330,9 +328,7 @@ class MediaStream {
 
     const parsedResult = parseTwilioWsEvent(rawData);
     if (!parsedResult.ok) {
-      const parsedError = /** @type {import('./src/core/types').WsEventParseError} */ (
-        parsedResult
-      );
+      const parsedError = /** @type {WsEventParseError} */ (parsedResult);
       log('Media WS: invalid event payload', parsedError.reason);
       this.connection.close();
       return;
@@ -342,7 +338,7 @@ class MediaStream {
       this.messageCount++;
       return;
     }
-    const parsed = /** @type {import('./src/core/types').WsEventParseOkSupported} */ (parsedResult);
+    const parsed = /** @type {WsEventParseOkSupported} */ (parsedResult);
 
     switch (parsed.event) {
       case 'connected': {
@@ -392,8 +388,7 @@ class MediaStream {
           config.twilioMediaPayloadMaxBytes
         );
         if (!mediaPayload.ok) {
-          const mediaPayloadError =
-            /** @type {import('./src/core/types').MediaPayloadParseError} */ (mediaPayload);
+          const mediaPayloadError = /** @type {MediaPayloadParseError} */ (mediaPayload);
           log(`Media WS: ${mediaPayloadError.reason}`);
           this.connection.close();
           return;
@@ -546,7 +541,7 @@ function issueStreamToken(callSid) {
 
 /**
  * @param {string} token
- * @returns {{ ok: true, callSid: string | null } | { ok: false, reason: string }}
+ * @returns {StreamTokenVerificationResult}
  */
 function verifyAndConsumeStreamToken(token) {
   pruneExpiredNonces();
