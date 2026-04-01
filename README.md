@@ -393,5 +393,5 @@ See `.env.example` for the full list. All are required unless marked optional.
 | `HAP_PORT` | HAP mDNS port (default: `47129`) |
 | `CALL_SESSION_STALE_SEC` | Time before an inactive active-call session is force-cleaned (default: `900`) |
 | `WS_MAX_MESSAGE_BYTES` | Maximum accepted UTF-8 WebSocket message size (default: `65536`) |
-| `TWILIO_MEDIA_PAYLOAD_MAX_BYTES` | Maximum decoded Twilio media chunk size in bytes (default: `4096`) |
-| `SHUTDOWN_GRACE_MS` | Graceful shutdown timeout before forced exit (default: `8000`) |
+| `TWILIO_MEDIA_PAYLOAD_MAX_BYTES` | Maximum decoded Twilio media chunk size in bytes (default: `8192`) |
+| `SHUTDOWN_GRACE_MS` | Graceful shutdown timeout before forced exit (default: `10000`) |

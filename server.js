@@ -22,6 +22,7 @@ const pendingStreamNonces = new Map();
 const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
 const MAX_TWILIO_MEDIA_PAYLOAD_BYTES = config.twilioMediaPayloadMaxBytes;
 const SHUTDOWN_GRACE_MS = config.shutdownGraceMs;
+const BASE64_PAYLOAD_REGEX = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
 let ringtoneReady = false;
 let shuttingDown = false;
 const activeWsConnections = new Set();
@@ -339,14 +340,12 @@ class MediaStream {
           break;
         }
         const payload = data.media.payload;
-        let decoded;
-        try {
-          decoded = Buffer.from(payload, 'base64');
-        } catch {
+        if (!BASE64_PAYLOAD_REGEX.test(payload)) {
           log('Media WS: invalid media payload encoding');
           this.connection.close();
           return;
         }
+        const decoded = Buffer.from(payload, 'base64');
         if (decoded.length > MAX_TWILIO_MEDIA_PAYLOAD_BYTES) {
           log('Media WS: media payload too large');
           this.connection.close();
@@ -365,8 +364,7 @@ class MediaStream {
 
       default:
         log('Media WS: unknown event type', event);
-        this.connection.close();
-        return;
+        break;
     }
 
     this.messageCount++;
@@ -379,7 +377,7 @@ class MediaStream {
   _teardown(reason) {
     if (this.closed) return;
     this.closed = true;
-    log('Media WS: closed after', this.messageCount, 'messages');
+    log('Media WS: session ended', { reason, messages: this.messageCount });
     // Guard: close() can fire without a prior 'stop' event (e.g. network drop).
     this.mulawStream.destroy();
     const { cleared } = state.clearIfConnection(this.connection, reason);
