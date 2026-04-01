@@ -340,7 +340,7 @@ class MediaStream {
           break;
         }
         const payload = data.media.payload;
-        if (!BASE64_PAYLOAD_REGEX.test(payload)) {
+        if (payload.length % 4 !== 0 || !BASE64_PAYLOAD_REGEX.test(payload)) {
           log('Media WS: invalid media payload encoding');
           this.connection.close();
           return;
