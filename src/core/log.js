@@ -14,12 +14,12 @@ const PRETTY_LOGS = process.env.LOG_PRETTY === '1';
 
 /**
  * @param {unknown} value
- * @returns {Record<string, unknown>}
+ * @returns {LogFields}
  */
 function normalizeFields(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
 
-  /** @type {Record<string, unknown>} */
+  /** @type {LogFields} */
   const normalized = {};
   for (const [key, fieldValue] of Object.entries(value)) {
     if (fieldValue === undefined) continue;
@@ -59,7 +59,7 @@ function shouldLog(level) {
 
 /**
  * @param {'debug' | 'info' | 'warn' | 'error'} level
- * @param {Record<string, unknown>} payload
+ * @param {LogFields} payload
  */
 function emit(level, payload) {
   const target = level === 'warn' || level === 'error' ? process.stderr : process.stdout;
@@ -81,7 +81,7 @@ function emit(level, payload) {
 }
 
 /**
- * @param {Record<string, unknown>} [baseFields]
+ * @param {LogFields} [baseFields]
  */
 function createLogger(baseFields) {
   const base = normalizeFields(baseFields);
@@ -89,7 +89,7 @@ function createLogger(baseFields) {
   /**
    * @param {'debug' | 'info' | 'warn' | 'error'} level
    * @param {string} message
-   * @param {Record<string, unknown>} [fields]
+   * @param {LogFields} [fields]
    */
   function logAt(level, message, fields) {
     if (!shouldLog(level)) return;
@@ -104,23 +104,23 @@ function createLogger(baseFields) {
   }
 
   return {
-    /** @param {string} message @param {Record<string, unknown>} [fields] */
+    /** @param {string} message @param {LogFields} [fields] */
     debug(message, fields) {
       logAt('debug', message, fields);
     },
-    /** @param {string} message @param {Record<string, unknown>} [fields] */
+    /** @param {string} message @param {LogFields} [fields] */
     info(message, fields) {
       logAt('info', message, fields);
     },
-    /** @param {string} message @param {Record<string, unknown>} [fields] */
+    /** @param {string} message @param {LogFields} [fields] */
     warn(message, fields) {
       logAt('warn', message, fields);
     },
-    /** @param {string} message @param {Record<string, unknown>} [fields] */
+    /** @param {string} message @param {LogFields} [fields] */
     error(message, fields) {
       logAt('error', message, fields);
     },
-    /** @param {Record<string, unknown>} fields */
+    /** @param {LogFields} fields */
     child(fields) {
       return createLogger({ ...base, ...normalizeFields(fields) });
     },
