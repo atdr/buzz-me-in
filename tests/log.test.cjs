@@ -105,7 +105,7 @@ describe('core logger', () => {
         logger.info('will fail serialization', { event: 'circular', circular });
       });
 
-      const [entry] = parseLines(captured.stdout);
+      const [entry] = parseLines(captured.stderr);
       assert.equal(entry.level, 'error');
       assert.equal(entry.component, 'log');
       assert.equal(entry.reason, 'serialization-error');

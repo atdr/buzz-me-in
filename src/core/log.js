@@ -76,7 +76,7 @@ function emit(level, payload) {
       errorMessage: err instanceof Error ? err.message : String(err),
       errorStack: err instanceof Error && err.stack ? err.stack : '',
     };
-    target.write(`${JSON.stringify(fallback)}\n`);
+    process.stderr.write(`${JSON.stringify(fallback)}\n`);
   }
 }
 
