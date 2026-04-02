@@ -1,19 +1,36 @@
 // based on https://github.com/twilio/media-streams/blob/master/node/basic/README.md
 'use strict';
 
-require('dotenv').config();
-
-const fs   = require('fs');
+const fs = require('fs');
 const http = require('http');
+const twilio = require('twilio');
+const crypto = require('crypto');
 const { PassThrough } = require('stream');
-const { spawn }       = require('child_process');
-const HttpDispatcher  = require('httpdispatcher');
+const { spawn } = require('child_process');
+const HttpDispatcher = require('httpdispatcher');
 const WebSocketServer = require('websocket').server;
+const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('./src/core/ws-events-schema');
 
-const state   = require('./state');
+const config = require('./src/core/config');
+const state = require('./src/core/state');
 const homekit = require('./homekit');
+const { createLogger } = require('./src/core/log');
+/** @import { connection, request as WebSocketRequest, Message } from 'websocket' */
+/** @import { WsEventParseResult, WsEventParseOkSupported, StartCallResult, MediaPayloadParseResult, StreamTokenVerificationResult, TokenVerificationError, WsEventParseError, MediaPayloadParseError } from './src/core/types' */
 
-const HTTP_SERVER_PORT = parseInt(process.env.PORT, 10) || 8080;
+const HTTP_SERVER_PORT = config.port;
+const STREAM_PATH = '/media';
+const STREAM_TOKEN_VERSION = 1;
+const STATUS_BEARER_PREFIX = 'Bearer ';
+const pendingStreamNonces = new Map();
+const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
+const SHUTDOWN_GRACE_MS = config.shutdownGraceMs;
+let ringtoneReady = false;
+let shuttingDown = false;
+const activeWsConnections = new Set();
+const logger = createLogger({ component: 'server' });
+const mediaWsLogger = logger.child({ component: 'media-ws' });
+const twimlLogger = logger.child({ component: 'twiml' });
 
 // ---------------------------------------------------------------------------
 // Ringtone — generated once at startup by ffmpeg.
@@ -29,16 +46,34 @@ function generateRingtone() {
     //   400ms on, 200ms off, 400ms on, 2000ms off  (= 3 s, looped by Twilio)
     // Each burst is a 400Hz + 450Hz dual tone mixed at half amplitude.
     const ff = spawn('ffmpeg', [
-      '-y', '-loglevel', 'warning',
+      '-y',
+      '-loglevel',
+      'warning',
       // Burst 1: 400ms
-      '-f', 'lavfi', '-i', 'sine=frequency=400:duration=0.4',
-      '-f', 'lavfi', '-i', 'sine=frequency=450:duration=0.4',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=400:duration=0.4',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=450:duration=0.4',
       // Burst 2: 400ms
-      '-f', 'lavfi', '-i', 'sine=frequency=400:duration=0.4',
-      '-f', 'lavfi', '-i', 'sine=frequency=450:duration=0.4',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=400:duration=0.4',
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=450:duration=0.4',
       // Silence source
-      '-f', 'lavfi', '-i', 'anullsrc=r=8000:cl=mono',
-      '-filter_complex', [
+      '-f',
+      'lavfi',
+      '-i',
+      'anullsrc=r=8000:cl=mono',
+      '-filter_complex',
+      [
         // Mix each burst pair
         '[0][1]amix=inputs=2:duration=shortest,volume=0.5[b1]',
         '[2][3]amix=inputs=2:duration=shortest,volume=0.5[b2]',
@@ -48,41 +83,99 @@ function generateRingtone() {
         // Concatenate: burst1, gap, burst2, tail
         '[b1][gap][b2][tail]concat=n=4:v=0:a=1[out]',
       ].join(';'),
-      '-map', '[out]',
-      '-ar', '8000', '-ac', '1',
+      '-map',
+      '[out]',
+      '-ar',
+      '8000',
+      '-ac',
+      '1',
       RINGTONE_PATH,
     ]);
-    ff.on('close', code => {
+    ff.on('close', (code) => {
       if (code === 0) {
-        log('Ringtone generated at', RINGTONE_PATH);
+        logger.info('Ringtone generated', {
+          event: 'ringtone-generated',
+          path: RINGTONE_PATH,
+        });
+        ringtoneReady = true;
       } else {
-        console.error('ffmpeg ringtone generation failed with code', code);
+        logger.error('Ringtone generation failed', {
+          event: 'ringtone-generation-failed',
+          reason: 'ffmpeg-exit-nonzero',
+          exitCode: code,
+        });
       }
       resolve();
     });
-    ff.stderr.on('data', d => process.stderr.write('[ringtone ffmpeg] ' + d));
+    ff.stderr.on('data', (d) => {
+      mediaWsLogger.warn('Ringtone ffmpeg stderr', {
+        event: 'ringtone-ffmpeg-stderr',
+        detail: d.toString('utf8').trim(),
+      });
+    });
   });
 }
 
 generateRingtone();
 
 const dispatcher = new HttpDispatcher();
-const wsserver   = http.createServer(handleRequest);
+const wsserver = http.createServer(handleRequest);
 
 const mediaws = new WebSocketServer({
   httpServer: wsserver,
-  autoAcceptConnections: true,
+  autoAcceptConnections: false,
 });
 
-function log(message, ...args) {
-  console.log(new Date().toISOString(), message, ...args);
-}
+state.setOnSessionStale((session) => {
+  logger.warn('Call session stale; ending session', {
+    callSid: session.callSid,
+    event: 'session-stale',
+    reason: session.clearedReason,
+  });
+  if (session.wsConnection && typeof session.wsConnection.close === 'function') {
+    try {
+      session.wsConnection.close();
+    } catch (err) {
+      logger.error('Failed to close stale call websocket', {
+        callSid: session.callSid,
+        event: 'stale-close-failed',
+        reason: 'close-threw',
+        error: err,
+      });
+    }
+  }
+  homekit.endHapSession();
+});
 
 function handleRequest(request, response) {
   try {
+    if (shuttingDown) {
+      response.writeHead(503);
+      response.end('Server shutting down');
+      return;
+    }
+    const path = request.url ? request.url.split('?')[0] : '';
+    if (request.method === 'POST' && path === '/twiml') {
+      handleTwimlRequest(request, response).catch((err) => {
+        twimlLogger.error('Unhandled TwiML handler failure', {
+          event: 'twiml-unhandled-error',
+          reason: 'handler-threw',
+          error: err,
+        });
+        if (!response.headersSent) response.writeHead(500);
+        response.end('Internal Server Error');
+      });
+      return;
+    }
     dispatcher.dispatch(request, response);
   } catch (err) {
-    console.error(err);
+    logger.error('HTTP request handling failed', {
+      event: 'request-handler-error',
+      reason: 'handler-threw',
+      error: err,
+    });
+    if (!response.headersSent) response.writeHead(500);
+    response.end('Internal Server Error');
   }
 }
 
@@ -90,52 +183,80 @@ function handleRequest(request, response) {
 // HTTP routes
 // ---------------------------------------------------------------------------
 
-/**
- * POST /twiml
- * Twilio calls this when the intercom dials our number.
- * Returns TwiML that starts a bidirectional media stream and holds the call
- * open for up to an hour.
- *
- * <Pause length="300"/> keeps the call alive without a <Redirect> loop.
- * A loop would cause Twilio to re-open the WebSocket on each iteration,
- * adding reconnection complexity. We manage the call lifecycle entirely via
- * the REST API instead (see twilio-api.js).
- */
-dispatcher.onPost('/twiml', function(_req, res) {
-  log('POST /twiml');
-  const tunnelHost = process.env.TUNNEL_HOSTNAME;
-  if (!tunnelHost) {
-    log('ERROR: TUNNEL_HOSTNAME not set');
-    res.writeHead(500);
-    res.end('TUNNEL_HOSTNAME environment variable not set');
-    return;
-  }
-  const body = `<?xml version="1.0" encoding="UTF-8"?>
+function buildTwiml(streamToken) {
+  return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Start>
-    <Stream url="wss://${tunnelHost}/"/>
+    <Stream url="wss://${config.tunnelHostname}${STREAM_PATH}?token=${encodeURIComponent(streamToken)}"/>
   </Start>
-  <Play loop="0">https://${tunnelHost}/ringtone</Play>
+  <Play loop="0">https://${config.tunnelHostname}/ringtone</Play>
 </Response>`;
+}
+
+async function handleTwimlRequest(req, res) {
+  twimlLogger.info('Incoming TwiML request', {
+    event: 'twiml-request',
+    method: req.method,
+    path: req.url ? req.url.split('?')[0] : '',
+  });
+
+  // eslint-disable-next-line no-useless-assignment -- assigned before first use inside try for readable error path
+  let rawBody = '';
+  try {
+    rawBody = await readRequestBody(req, 32 * 1024);
+  } catch (err) {
+    twimlLogger.warn('TwiML body read failed', {
+      event: 'twiml-body-read-failed',
+      reason: 'invalid-request-body',
+      error: err,
+    });
+    res.writeHead(400);
+    res.end('Invalid request body');
+    return;
+  }
+
+  if (!isValidTwilioRequest(req, rawBody)) {
+    twimlLogger.warn('TwiML request rejected', {
+      event: 'twiml-rejected',
+      reason: 'invalid-twilio-signature',
+    });
+    res.writeHead(403);
+    res.end('Forbidden');
+    return;
+  }
+
+  const formData = parseFormUrlEncoded(rawBody);
+  const streamToken = issueStreamToken(
+    typeof formData.CallSid === 'string' ? formData.CallSid : null
+  );
+  const body = buildTwiml(streamToken);
+  twimlLogger.info('TwiML response generated', {
+    event: 'twiml-response',
+    callSid: typeof formData.CallSid === 'string' ? formData.CallSid : undefined,
+  });
   res.writeHead(200, {
     'Content-Type': 'text/xml',
     'Content-Length': Buffer.byteLength(body),
   });
   res.end(body);
-});
+}
 
 /**
  * GET /ringtone.wav
  * UK-style ring tone served to Twilio via <Play loop="0">.
  */
-dispatcher.onGet('/ringtone', function(_req, res) {
+dispatcher.onGet('/ringtone', function (_req, res) {
   fs.readFile(RINGTONE_PATH, (err, data) => {
     if (err) {
       res.writeHead(503);
       res.end('Ringtone not ready');
       return;
     }
-    res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': data.length, 'Cache-Control': 'no-store' });
+    res.writeHead(200, {
+      'Content-Type': 'audio/wav',
+      'Content-Length': data.length,
+      'Cache-Control': 'no-store',
+    });
     res.end(data);
   });
 });
@@ -144,13 +265,29 @@ dispatcher.onGet('/ringtone', function(_req, res) {
  * GET /status — quick health/debug endpoint
  * Returns the current active call info (callSid only, no credentials).
  */
-dispatcher.onGet('/status', function(_req, res) {
-  const body = JSON.stringify(
-    state.activeCall
-      ? { active: true,  callSid: state.activeCall.callSid }
-      : { active: false }
-  );
+dispatcher.onGet('/status', function (_req, res) {
+  if (!isAuthorizedForStatus(_req)) {
+    res.writeHead(401);
+    res.end('Unauthorized');
+    return;
+  }
+  const body = JSON.stringify(state.getStatus());
   res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(body);
+});
+
+dispatcher.onGet('/healthz', function (_req, res) {
+  const body = JSON.stringify({ ok: true });
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(body);
+});
+
+dispatcher.onGet('/readyz', function (_req, res) {
+  const body = JSON.stringify({
+    ok: ringtoneReady,
+    checks: { ringtoneGenerated: ringtoneReady },
+  });
+  res.writeHead(ringtoneReady ? 200 : 503, { 'Content-Type': 'application/json' });
   res.end(body);
 });
 
@@ -158,15 +295,56 @@ dispatcher.onGet('/status', function(_req, res) {
 // WebSocket media stream
 // ---------------------------------------------------------------------------
 
-mediaws.on('connect', function(connection) {
-  log('Media WS: connection accepted');
-  new MediaStream(connection);
+mediaws.on('request', function (request) {
+  /** @type {WebSocketRequest} */
+  const wsRequest = request;
+  if (shuttingDown) {
+    wsRequest.reject(503, 'Server shutting down');
+    return;
+  }
+  const path = wsRequest.resourceURL && wsRequest.resourceURL.pathname;
+  if (path !== STREAM_PATH) {
+    wsRequest.reject(404, 'Not found');
+    return;
+  }
+
+  const query =
+    wsRequest.resourceURL && wsRequest.resourceURL.query ? wsRequest.resourceURL.query : {};
+  const token = typeof query.token === 'string' ? query.token : '';
+  /** @type {StreamTokenVerificationResult} */
+  const verification = verifyAndConsumeStreamToken(token);
+  if (!verification.ok) {
+    const verificationError = /** @type {TokenVerificationError} */ (verification);
+    mediaWsLogger.warn('Media websocket rejected', {
+      event: 'media-ws-rejected',
+      reason: verificationError.reason,
+    });
+    wsRequest.reject(403, 'Unauthorized');
+    return;
+  }
+
+  const connection = wsRequest.accept(null, wsRequest.origin);
+  activeWsConnections.add(connection);
+  connection.on('close', () => activeWsConnections.delete(connection));
+  mediaWsLogger.info('Media websocket connection accepted', {
+    event: 'media-ws-accepted',
+    callSid: verification.callSid || undefined,
+  });
+  new MediaStream(connection, verification.callSid);
 });
 
 class MediaStream {
-  constructor(connection) {
-    this.connection   = connection;
+  /**
+   * @param {connection} connection
+   * @param {string | null} expectedCallSid
+   */
+  constructor(connection, expectedCallSid) {
+    this.connection = connection;
     this.messageCount = 0;
+    this.expectedCallSid = expectedCallSid;
+    this.currentCallSid = null;
+    this.started = false;
+    this.closed = false;
 
     // Raw mulaw bytes from Twilio flow into this PassThrough.
     // homekit.js pipes it into the inbound ffmpeg when a HAP session opens.
@@ -175,60 +353,343 @@ class MediaStream {
     this.mulawStream = new PassThrough({ highWaterMark: 32768 });
 
     connection.on('message', this.processMessage.bind(this));
-    connection.on('close',   this.close.bind(this));
+    connection.on('close', this.close.bind(this));
   }
 
+  /**
+   * @param {Message} message
+   */
   processMessage(message) {
     if (message.type !== 'utf8') return;
+    if (message.utf8Data.length > MAX_WS_UTF8_BYTES) {
+      mediaWsLogger.warn('Media websocket message too large', {
+        event: 'media-ws-message-too-large',
+        reason: 'max-message-bytes-exceeded',
+      });
+      this.connection.close();
+      return;
+    }
 
-    const data = JSON.parse(message.utf8Data);
+    let rawData;
+    try {
+      rawData = JSON.parse(message.utf8Data);
+    } catch {
+      mediaWsLogger.warn('Media websocket invalid JSON', {
+        event: 'media-ws-invalid-json',
+        reason: 'json-parse-failed',
+      });
+      this.connection.close();
+      return;
+    }
 
-    switch (data.event) {
+    const parsedResult = parseTwilioWsEvent(rawData);
+    if (!parsedResult.ok) {
+      const parsedError = /** @type {WsEventParseError} */ (parsedResult);
+      mediaWsLogger.warn('Media websocket invalid event payload', {
+        event: 'media-ws-invalid-event-payload',
+        reason: parsedError.reason,
+      });
+      this.connection.close();
+      return;
+    }
+    if (parsedResult.unsupported) {
+      mediaWsLogger.info('Media websocket unsupported event ignored', {
+        event: 'media-ws-unsupported-event',
+        reason: parsedResult.event,
+      });
+      this.messageCount++;
+      return;
+    }
+    const parsed = /** @type {WsEventParseOkSupported} */ (parsedResult);
 
-      case 'connected':
-        log('Media WS: connected', data);
+    switch (parsed.event) {
+      case 'connected': {
+        mediaWsLogger.info('Media websocket connected event', {
+          event: 'connected',
+        });
         break;
+      }
 
-      case 'start':
-        log('Media WS: start', data.start);
-        // callSid and streamSid only appear in the 'start' event.
-        state.activeCall = {
-          callSid:      data.start.callSid,
-          streamSid:    data.start.streamSid,
+      case 'start': {
+        if (this.started) {
+          mediaWsLogger.warn('Duplicate media websocket start event', {
+            event: 'start',
+            reason: 'duplicate-start',
+          });
+          this.connection.close();
+          return;
+        }
+        const start = parsed.data.start;
+        if (this.expectedCallSid && this.expectedCallSid !== start.callSid) {
+          mediaWsLogger.warn('Media websocket start rejected', {
+            callSid: start.callSid,
+            event: 'start',
+            reason: 'callsid-mismatch',
+          });
+          this.connection.close();
+          return;
+        }
+        const started = state.startCall({
+          callSid: start.callSid,
+          streamSid: start.streamSid,
           wsConnection: this.connection,
-        };
+        });
+        if (!started.ok) {
+          const startError = /** @type {{ ok: false, reason: string }} */ (started);
+          mediaWsLogger.warn('Media websocket start rejected', {
+            callSid: start.callSid,
+            event: 'start',
+            reason: startError.reason,
+          });
+          this.connection.close();
+          return;
+        }
+        mediaWsLogger.info('Media websocket start accepted', {
+          callSid: start.callSid,
+          event: 'start',
+          streamSid: start.streamSid,
+        });
+        this.currentCallSid = start.callSid;
+        this.started = true;
         homekit.setMulawPassthrough(this.mulawStream);
         homekit.triggerDoorbell();
         break;
+      }
 
-      case 'media':
+      case 'media': {
+        if (!this.started || !this.currentCallSid) {
+          mediaWsLogger.warn('Media frame before start event', {
+            event: 'media',
+            reason: 'media-before-start',
+          });
+          this.connection.close();
+          return;
+        }
+        const mediaPayload = parseTwilioMediaPayload(
+          parsed.data.media.payload,
+          config.twilioMediaPayloadMaxBytes
+        );
+        if (!mediaPayload.ok) {
+          const mediaPayloadError = /** @type {MediaPayloadParseError} */ (mediaPayload);
+          mediaWsLogger.warn('Media payload rejected', {
+            callSid: this.currentCallSid,
+            event: 'media',
+            reason: mediaPayloadError.reason,
+          });
+          this.connection.close();
+          return;
+        }
         // base64-decode the mulaw payload and push it into the PassThrough.
         // homekit.js has already piped this stream to ffmpeg's stdin.
-        this.mulawStream.write(Buffer.from(data.media.payload, 'base64'));
+        this.mulawStream.write(mediaPayload.decoded);
+        state.markActivity(this.currentCallSid, 'twilio-media');
         break;
+      }
 
-      case 'stop':
-        log('Media WS: stop', data);
-        // Caller hung up — signal HomeKit and clean up.
-        // Do NOT call hangUpCall here: the call is already gone.
-        this.mulawStream.end();
-        homekit.endHapSession();
-        state.activeCall = null;
+      case 'stop': {
+        mediaWsLogger.info('Media websocket stop event', {
+          callSid: this.currentCallSid || undefined,
+          event: 'stop',
+        });
+        this._teardown('twilio-stop');
         break;
+      }
     }
 
     this.messageCount++;
   }
 
   close() {
-    log('Media WS: closed after', this.messageCount, 'messages');
+    this._teardown('ws-close');
+  }
+
+  _teardown(reason) {
+    if (this.closed) return;
+    this.closed = true;
+    mediaWsLogger.info('Media websocket session ended', {
+      callSid: this.currentCallSid || undefined,
+      event: 'session-ended',
+      reason,
+      messageCount: this.messageCount,
+    });
     // Guard: close() can fire without a prior 'stop' event (e.g. network drop).
     this.mulawStream.destroy();
-    if (state.activeCall) {
+    const { cleared } = state.clearIfConnection(this.connection, reason);
+    if (cleared) {
       homekit.endHapSession();
-      state.activeCall = null;
     }
   }
+}
+
+/**
+ * @param {import('http').IncomingMessage} req
+ * @param {number} maxBytes
+ * @returns {Promise<string>}
+ */
+function readRequestBody(req, maxBytes) {
+  return new Promise((resolve, reject) => {
+    let total = 0;
+    const chunks = [];
+    req.on('data', (chunk) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        reject(new Error('Body too large'));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+/**
+ * @param {string} body
+ * @returns {Record<string, string | string[]>}
+ */
+function parseFormUrlEncoded(body) {
+  /** @type {Record<string, string | string[]>} */
+  const parsed = {};
+  const params = new URLSearchParams(body);
+  for (const [key, value] of params) {
+    if (Object.prototype.hasOwnProperty.call(parsed, key)) {
+      const existing = parsed[key];
+      parsed[key] = Array.isArray(existing) ? [...existing, value] : [existing, value];
+    } else {
+      parsed[key] = value;
+    }
+  }
+  return parsed;
+}
+
+/**
+ * @param {import('http').IncomingMessage} req
+ * @param {string} rawBody
+ * @returns {boolean}
+ */
+function isValidTwilioRequest(req, rawBody) {
+  const signature = req.headers['x-twilio-signature'];
+  if (typeof signature !== 'string' || !signature) return false;
+
+  const url = new URL(req.url || '/twiml', config.twilioWebhookBaseUrl);
+  const requestUrl = `${config.twilioWebhookBaseUrl}${url.pathname}${url.search}`;
+  const params = parseFormUrlEncoded(rawBody);
+
+  return twilio.validateRequest(config.twilioAuthToken, signature, requestUrl, params);
+}
+
+function toBase64Url(buffer) {
+  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
+function fromBase64Url(value) {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  return Buffer.from(padded, 'base64');
+}
+
+function safeEqualString(a, b) {
+  const left = Buffer.from(a, 'utf8');
+  const right = Buffer.from(b, 'utf8');
+  const len = Math.max(left.length, right.length);
+  const paddedLeft = Buffer.concat([left, Buffer.alloc(len - left.length)]);
+  const paddedRight = Buffer.concat([right, Buffer.alloc(len - right.length)]);
+  return crypto.timingSafeEqual(paddedLeft, paddedRight);
+}
+
+function pruneExpiredNonces() {
+  const now = Math.floor(Date.now() / 1000);
+  for (const [nonce, data] of pendingStreamNonces.entries()) {
+    if (data.exp <= now) pendingStreamNonces.delete(nonce);
+  }
+}
+
+/**
+ * @param {string | null} callSid
+ * @returns {string}
+ */
+function issueStreamToken(callSid) {
+  pruneExpiredNonces();
+
+  const now = Math.floor(Date.now() / 1000);
+  const exp = now + config.streamAuthTtlSec;
+  const nonce = crypto.randomBytes(16).toString('hex');
+
+  pendingStreamNonces.set(nonce, { exp, callSid });
+
+  const payload = {
+    v: STREAM_TOKEN_VERSION,
+    iat: now,
+    exp,
+    nonce,
+    callSid,
+  };
+
+  const payloadEncoded = toBase64Url(Buffer.from(JSON.stringify(payload), 'utf8'));
+  const signature = toBase64Url(
+    crypto.createHmac('sha256', config.streamAuthSecret).update(payloadEncoded).digest()
+  );
+  return `${payloadEncoded}.${signature}`;
+}
+
+/**
+ * @param {string} token
+ * @returns {StreamTokenVerificationResult}
+ */
+function verifyAndConsumeStreamToken(token) {
+  pruneExpiredNonces();
+  if (!token) return { ok: false, reason: 'missing token' };
+
+  const pieces = token.split('.');
+  if (pieces.length !== 2) return { ok: false, reason: 'invalid token format' };
+  const [payloadEncoded, providedSig] = pieces;
+  const expectedSig = toBase64Url(
+    crypto.createHmac('sha256', config.streamAuthSecret).update(payloadEncoded).digest()
+  );
+  if (!safeEqualString(providedSig, expectedSig)) {
+    return { ok: false, reason: 'invalid token signature' };
+  }
+
+  let payload;
+  try {
+    payload = JSON.parse(fromBase64Url(payloadEncoded).toString('utf8'));
+  } catch {
+    return { ok: false, reason: 'invalid token payload' };
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  if (
+    payload.v !== STREAM_TOKEN_VERSION ||
+    !payload.nonce ||
+    payload.exp <= now ||
+    payload.iat > now + 30
+  ) {
+    return { ok: false, reason: 'expired or malformed token' };
+  }
+
+  const pending = pendingStreamNonces.get(payload.nonce);
+  if (!pending) return { ok: false, reason: 'nonce not pending' };
+  if (pending.exp !== payload.exp || pending.callSid !== payload.callSid) {
+    pendingStreamNonces.delete(payload.nonce);
+    return { ok: false, reason: 'nonce payload mismatch' };
+  }
+
+  pendingStreamNonces.delete(payload.nonce);
+  return { ok: true, callSid: payload.callSid || null };
+}
+
+/**
+ * @param {import('http').IncomingMessage} req
+ * @returns {boolean}
+ */
+function isAuthorizedForStatus(req) {
+  const authHeader = req.headers.authorization;
+  if (typeof authHeader !== 'string' || !authHeader.startsWith(STATUS_BEARER_PREFIX)) {
+    return false;
+  }
+  const provided = authHeader.slice(STATUS_BEARER_PREFIX.length);
+  return safeEqualString(provided, config.statusApiToken);
 }
 
 // ---------------------------------------------------------------------------
@@ -236,5 +697,50 @@ class MediaStream {
 // ---------------------------------------------------------------------------
 
 wsserver.listen(HTTP_SERVER_PORT, () => {
-  log(`Server listening on port ${HTTP_SERVER_PORT}`);
+  logger.info('Server listening', {
+    event: 'server-start',
+    port: HTTP_SERVER_PORT,
+  });
 });
+
+function beginShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const shutdownStartedAt = Date.now();
+  logger.info('Graceful shutdown started', {
+    event: 'shutdown-start',
+    reason: signal,
+  });
+
+  const forceExitTimer = setTimeout(() => {
+    logger.error('Shutdown grace period exceeded; forcing exit', {
+      event: 'shutdown-force-exit',
+      reason: 'grace-period-exceeded',
+      durationMs: SHUTDOWN_GRACE_MS,
+    });
+    process.exit(1);
+  }, SHUTDOWN_GRACE_MS);
+  if (typeof forceExitTimer.unref === 'function') forceExitTimer.unref();
+
+  const { cleared } = state.clearActiveCall('server-shutdown');
+  if (cleared) homekit.endHapSession();
+
+  for (const connection of activeWsConnections) {
+    try {
+      connection.close();
+    } catch {}
+  }
+
+  wsserver.close(() => {
+    clearTimeout(forceExitTimer);
+    state.stop();
+    logger.info('Shutdown complete', {
+      event: 'shutdown-complete',
+      durationMs: Date.now() - shutdownStartedAt,
+    });
+    process.exit(0);
+  });
+}
+
+process.on('SIGINT', () => beginShutdown('SIGINT'));
+process.on('SIGTERM', () => beginShutdown('SIGTERM'));

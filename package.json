@@ -4,7 +4,13 @@
   "description": "HomeKit-compatible apartment intercom via Twilio media streams",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "node --check server.js homekit.js twilio-api.js src/core/*.js",
+    "test": "node --test",
+    "typecheck": "tsc --noEmit"
   },
   "license": "MIT",
   "repository": {
@@ -15,13 +21,25 @@
   "bugs": {
     "url": "https://github.com/atdr/twilio-homekit-intercom/issues"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
-    "dbus-native": "^0.1.1",
     "dotenv": "^16.4.5",
     "hap-nodejs": "^0.14.2",
     "httpdispatcher": "^2.1.2",
-    "twilio": "^5.3.7",
     "qrcode-terminal": "^0.12.0",
-    "websocket": "^1.0.35"
+    "twilio": "^5.3.7",
+    "websocket": "^1.0.35",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/websocket": "^1.0.10",
+    "eslint": "^10.1.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.4.0",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3"
   }
 }

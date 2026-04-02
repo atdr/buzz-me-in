@@ -2,6 +2,11 @@
 
 A Raspberry Pi server that bridges an apartment intercom system into Apple HomeKit. When someone presses the intercom buzzer, your iPhone/HomePod receives a doorbell notification with a live camera tile. You can hear the caller, speak back, and unlock the door — all from the Home app or via Siri.
 
+## Project docs
+
+- [Architecture guide](docs/architecture.md)
+- [Testing guide](docs/testing.md)
+
 ## How it works
 
 ```text
@@ -58,6 +63,11 @@ RPi: server.js (HTTP + WebSocket on one port)
 
 - Raspberry Pi 4 (2 GB RAM recommended) running Raspberry Pi OS (64-bit)
 - Node.js >= 20
+<<<<<<< claude/review-pr-1-D7jE8
+=======
+  - Runtime is tested on Node 20+.
+  - Repo tooling/CI currently runs on Node 20 and 22.
+>>>>>>> main
 - ffmpeg with libx264 and libopus: `sudo apt install ffmpeg`
 
 ### Accounts and services
@@ -83,7 +93,36 @@ npm install
 cp .env.example .env
 ```
 
+<<<<<<< claude/review-pr-1-D7jE8
 Edit `.env` with your credentials. Each variable is explained inline in `.env.example`.
+=======
+Edit `.env` and fill in:
+
+| Variable              | Where to find it                                            |
+| --------------------- | ----------------------------------------------------------- |
+| `TWILIO_ACCOUNT_SID`  | [Twilio Console](https://console.twilio.com) → Account Info |
+| `TWILIO_AUTH_TOKEN`   | Twilio Console → Account Info                               |
+| `TWILIO_PHONE_NUMBER` | Twilio Console → Phone Numbers                              |
+| `HAP_USERNAME`        | Generate once (see below)                                   |
+| `HAP_PINCODE`         | Your choice — format `XXX-XX-XXX`                           |
+| `HAP_PORT`            | Default `47129` — must be open in your firewall/router      |
+
+Generate unique values for `HAP_USERNAME` and `HAP_PINCODE`:
+
+```bash
+# HAP_USERNAME — Bluetooth MAC-style address, must be unique on your LAN
+node -e "
+  const b = require('crypto').randomBytes(6);
+  console.log([...b].map(x => x.toString(16).padStart(2,'0').toUpperCase()).join(':'));
+"
+
+# HAP_PINCODE — format XXX-XX-XXX
+node -e "
+  const r = n => String(Math.floor(Math.random() * 10 ** n)).padStart(n, '0');
+  console.log(r(3) + '-' + r(2) + '-' + r(3));
+"
+```
+>>>>>>> main
 
 ### 3. Cloudflare Tunnel
 
@@ -124,7 +163,7 @@ Test the tunnel manually:
 
 ```bash
 cloudflared tunnel run intercom
-curl https://intercom.yourdomain.com/status   # should return {"active":false}
+curl https://intercom.yourdomain.com/healthz
 ```
 
 ### 4. Configure Twilio
@@ -138,7 +177,17 @@ In the [Twilio Console](https://console.twilio.com/us1/develop/phone-numbers/man
    - Method: **HTTP POST**
 3. Save.
 
+<<<<<<< claude/review-pr-1-D7jE8
 ### 5. Pair with HomeKit
+=======
+Security hardening notes:
+
+- `/twiml` now enforces `X-Twilio-Signature` verification with your `TWILIO_AUTH_TOKEN`.
+- TwiML now embeds a short-lived, one-time signed token in the media stream URL. WebSocket connections are rejected unless this token validates.
+- If your externally visible webhook base URL differs from `https://{TUNNEL_HOSTNAME}`, set `TWILIO_WEBHOOK_BASE_URL` explicitly in `.env`.
+
+### 6. Pair with HomeKit
+>>>>>>> main
 
 Start the server:
 
@@ -182,10 +231,11 @@ Work through these stages in order. Each has a clear pass/fail check before wiri
 
 ```bash
 node server.js
-curl http://localhost:8080/status
+curl http://localhost:8080/healthz
+curl http://localhost:8080/readyz
 ```
 
-**Pass:** returns `{"active":false}` with no errors in the log.
+**Pass:** `/healthz` returns `{"ok":true}` and `/readyz` returns `{"ok":true,...}` with no errors in the log.
 
 ---
 
@@ -193,10 +243,11 @@ curl http://localhost:8080/status
 
 ```bash
 cloudflared tunnel run intercom   # or check systemctl status
-curl https://intercom.yourdomain.com/status
+curl https://intercom.yourdomain.com/healthz
+curl https://intercom.yourdomain.com/readyz
 ```
 
-**Pass:** same `{"active":false}` response, this time from the public internet.
+**Pass:** both endpoints return `{"ok":true...}` from the public internet.
 
 ---
 
@@ -222,7 +273,7 @@ Call your Twilio number from any phone (simulate the intercom caller).
 **Pass (phone):** A doorbell notification appears on your iPhone.
 
 ```bash
-curl https://intercom.yourdomain.com/status
+curl -H "Authorization: Bearer $STATUS_API_TOKEN" https://intercom.yourdomain.com/status
 # → {"active":true,"callSid":"CA..."}
 ```
 
@@ -311,10 +362,11 @@ Open the live view, then dismiss it on the iPhone (tap the X / end button).
 sudo reboot
 # After ~30 s:
 sudo systemctl status cloudflared intercom
-curl https://intercom.yourdomain.com/status
+curl https://intercom.yourdomain.com/healthz
+curl https://intercom.yourdomain.com/readyz
 ```
 
-**Pass:** Both services are `active (running)`. The `/status` endpoint responds. Make a test call to confirm end-to-end flow survives a reboot.
+**Pass:** Both services are `active (running)`. `/healthz` and `/readyz` respond with `ok: true`. Make a test call to confirm end-to-end flow survives a reboot.
 
 ---
 
@@ -334,4 +386,24 @@ curl https://intercom.yourdomain.com/status
 
 ## Environment variables
 
+<<<<<<< claude/review-pr-1-D7jE8
 See `.env.example` for the full list with descriptions and default values.
+=======
+| Variable                         | Description                                                                                            |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| `TWILIO_ACCOUNT_SID`             | Twilio account SID (starts with `AC`)                                                                  |
+| `TWILIO_AUTH_TOKEN`              | Twilio auth token                                                                                      |
+| `TWILIO_PHONE_NUMBER`            | Twilio number receiving intercom calls (E.164)                                                         |
+| `PORT`                           | HTTP server port (default: `8080`)                                                                     |
+| `TUNNEL_HOSTNAME`                | Cloudflare Tunnel hostname used to build the `wss://` URL in TwiML                                     |
+| `TWILIO_WEBHOOK_BASE_URL`        | Optional absolute base URL used for Twilio signature validation (default: `https://{TUNNEL_HOSTNAME}`) |
+| `STREAM_AUTH_SECRET`             | Required secret (min 32 chars) used to sign one-time media WebSocket tokens                            |
+| `STATUS_API_TOKEN`               | Required bearer token (min 16 chars) for `/status`                                                     |
+| `HAP_USERNAME`                   | HAP accessory MAC-style address — must be unique on LAN                                                |
+| `HAP_PINCODE`                    | HomeKit pairing code (`XXX-XX-XXX`)                                                                    |
+| `HAP_PORT`                       | HAP mDNS port (default: `47129`)                                                                       |
+| `CALL_SESSION_STALE_SEC`         | Time before an inactive active-call session is force-cleaned (default: `900`)                          |
+| `WS_MAX_MESSAGE_BYTES`           | Maximum accepted UTF-8 WebSocket message size (default: `4096`)                                        |
+| `TWILIO_MEDIA_PAYLOAD_MAX_BYTES` | Maximum decoded Twilio media chunk size in bytes (default: `512`)                                      |
+| `SHUTDOWN_GRACE_MS`              | Graceful shutdown timeout before forced exit (default: `10000`)                                        |
+>>>>>>> main
