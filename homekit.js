@@ -26,6 +26,7 @@ const { spawn } = require('child_process');
 
 const config = require('./src/core/config');
 const state = require('./src/core/state');
+const { createLogger } = require('./src/core/log');
 const { answerCall, hangUpCall, unlockDoor } = require('./twilio-api');
 
 const {
@@ -42,6 +43,7 @@ const {
   StreamRequestTypes,
   Categories,
 } = hap;
+const logger = createLogger({ component: 'homekit' });
 
 // ---------------------------------------------------------------------------
 // Utilities
@@ -332,8 +334,22 @@ function _startSession(sessionID, s, callback) {
     `srtp://${s.targetAddress}:${s.hkAudioPort}?rtcpport=${s.hkAudioPort + 1}`,
   ]);
 
-  ffIn.stderr.on('data', (d) => process.stderr.write('[ffIn] ' + d));
-  ffIn.on('close', (code) => console.log('[ffIn] exited', code));
+  ffIn.stderr.on('data', (d) => {
+    logger.warn('Inbound ffmpeg stderr', {
+      event: 'ffin-stderr',
+      reason: 'ffmpeg-stderr',
+      detail: d.toString('utf8').trim(),
+      sessionId: sessionID,
+    });
+  });
+  ffIn.on('close', (code) => {
+    logger.info('Inbound ffmpeg exited', {
+      event: 'ffin-exit',
+      reason: code === 0 ? 'clean-exit' : 'nonzero-exit',
+      exitCode: code,
+      sessionId: sessionID,
+    });
+  });
   ffIn.stdin.on('error', () => {}); // suppress EPIPE when stream ends
 
   // Pipe the buffered/live mulaw stream into ffmpeg stdin.
@@ -342,7 +358,11 @@ function _startSession(sessionID, s, callback) {
   if (currentMulawStream) {
     currentMulawStream.pipe(ffIn.stdin, { end: false });
   } else {
-    console.warn('[HomeKit] No mulaw stream available — no audio will be sent');
+    logger.warn('No mulaw stream available for inbound ffmpeg', {
+      event: 'ffin-no-mulaw-stream',
+      reason: 'missing-inbound-stream',
+      sessionId: sessionID,
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -405,8 +425,22 @@ function _startSession(sessionID, s, callback) {
     'pipe:1',
   ]);
 
-  ffOut.stderr.on('data', (d) => process.stderr.write('[ffOut] ' + d));
-  ffOut.on('close', (code) => console.log('[ffOut] exited', code));
+  ffOut.stderr.on('data', (d) => {
+    logger.warn('Outbound ffmpeg stderr', {
+      event: 'ffout-stderr',
+      reason: 'ffmpeg-stderr',
+      detail: d.toString('utf8').trim(),
+      sessionId: sessionID,
+    });
+  });
+  ffOut.on('close', (code) => {
+    logger.info('Outbound ffmpeg exited', {
+      event: 'ffout-exit',
+      reason: code === 0 ? 'clean-exit' : 'nonzero-exit',
+      exitCode: code,
+      sessionId: sessionID,
+    });
+  });
 
   // Forward each decoded mulaw chunk to Twilio as a media event.
   ffOut.stdout.on('data', (chunk) => {
@@ -427,9 +461,15 @@ function _startSession(sessionID, s, callback) {
   // Stop the ringtone playing to the caller and hold the call silently.
   const activeCall = getActiveCall();
   if (activeCall) {
-    answerCall(activeCall.callSid).catch((e) =>
-      console.error('[Twilio] answerCall failed:', e.message)
-    );
+    answerCall(activeCall.callSid).catch((error) => {
+      logger.error('Failed to answer call while starting HomeKit session', {
+        event: 'answer-call-failed',
+        reason: 'twilio-answer-failed',
+        callSid: activeCall.callSid,
+        sessionId: sessionID,
+        error,
+      });
+    });
   }
 
   callback();
@@ -462,9 +502,15 @@ function _stopSession(sessionID, hangUp) {
 
   const activeCall = getActiveCall();
   if (hangUp && activeCall) {
-    hangUpCall(activeCall.callSid).catch((e) =>
-      console.error('[Twilio] hangup failed:', e.message)
-    );
+    hangUpCall(activeCall.callSid).catch((error) => {
+      logger.error('Failed to hang up call while stopping HomeKit session', {
+        event: 'hangup-call-failed',
+        reason: 'twilio-hangup-failed',
+        callSid: activeCall.callSid,
+        sessionId: sessionID,
+        error,
+      });
+    });
   }
 }
 
@@ -498,8 +544,13 @@ lockService
     if (value === Characteristic.LockTargetState.UNSECURED && activeCall) {
       try {
         await unlockDoor(activeCall.callSid);
-      } catch (e) {
-        console.error('[Twilio] unlock failed:', e.message);
+      } catch (error) {
+        logger.error('Unlock door request failed', {
+          event: 'unlock-failed',
+          reason: 'twilio-unlock-failed',
+          callSid: activeCall.callSid,
+          error,
+        });
       }
       // Reset the lock tile to Secured after 3 s so it's ready for next use.
       setTimeout(() => {
@@ -511,7 +562,10 @@ lockService
           .updateValue(Characteristic.LockTargetState.SECURED);
       }, 3000);
     } else if (value === Characteristic.LockTargetState.UNSECURED) {
-      console.warn('[HomeKit] Unlock requested but no active call');
+      logger.warn('Unlock requested but no active call', {
+        event: 'unlock-no-active-call',
+        reason: 'no-active-call',
+      });
       setTimeout(() => {
         lockService
           .getCharacteristic(Characteristic.LockTargetState)
@@ -560,12 +614,21 @@ accessory.publish({
 });
 
 const hapPincode = config.hapPincode;
-console.log(`[HomeKit] Accessory published — pair with pincode ${hapPincode}`);
-console.log(`[HomeKit] Or scan this QR code with the Home app:\n`);
+logger.info('Accessory published', {
+  event: 'accessory-published',
+  hapPincode,
+});
+logger.info('Accessory QR setup URI generated', {
+  event: 'accessory-qr-setup',
+});
 qrcode.generate(accessory.setupURI(), { small: true });
 
 // Kick off snapshot generation asynchronously (non-blocking)
-initSnapshot().then(() => console.log('[HomeKit] Snapshot ready'));
+initSnapshot().then(() =>
+  logger.info('Snapshot initialized', {
+    event: 'snapshot-ready',
+  })
+);
 
 // ---------------------------------------------------------------------------
 // Exports called by server.js
@@ -577,7 +640,9 @@ initSnapshot().then(() => console.log('[HomeKit] Snapshot ready'));
  */
 function triggerDoorbell() {
   doorbellService.getCharacteristic(Characteristic.ProgrammableSwitchEvent).updateValue(0); // 0 = SINGLE_PRESS
-  console.log('[HomeKit] Doorbell triggered');
+  logger.info('Doorbell triggered', {
+    event: 'doorbell-triggered',
+  });
 }
 
 /**

@@ -2,6 +2,11 @@
 
 A Raspberry Pi server that bridges an apartment intercom system into Apple HomeKit. When someone presses the intercom buzzer, your iPhone/HomePod receives a doorbell notification with a live camera tile. You can hear the caller, speak back, and unlock the door — all from the Home app or via Siri.
 
+## Project docs
+
+- [Architecture guide](docs/architecture.md)
+- [Testing guide](docs/testing.md)
+
 ## How it works
 
 ```text

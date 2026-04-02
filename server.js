@@ -14,6 +14,7 @@ const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('./src/core/ws-e
 const config = require('./src/core/config');
 const state = require('./src/core/state');
 const homekit = require('./homekit');
+const { createLogger } = require('./src/core/log');
 /** @import { connection, request as WebSocketRequest, Message } from 'websocket' */
 /** @import { WsEventParseResult, WsEventParseOkSupported, StartCallResult, MediaPayloadParseResult, StreamTokenVerificationResult, TokenVerificationError, WsEventParseError, MediaPayloadParseError } from './src/core/types' */
 
@@ -27,6 +28,9 @@ const SHUTDOWN_GRACE_MS = config.shutdownGraceMs;
 let ringtoneReady = false;
 let shuttingDown = false;
 const activeWsConnections = new Set();
+const logger = createLogger({ component: 'server' });
+const mediaWsLogger = logger.child({ component: 'media-ws' });
+const twimlLogger = logger.child({ component: 'twiml' });
 
 // ---------------------------------------------------------------------------
 // Ringtone — generated once at startup by ffmpeg.
@@ -89,14 +93,26 @@ function generateRingtone() {
     ]);
     ff.on('close', (code) => {
       if (code === 0) {
-        log('Ringtone generated at', RINGTONE_PATH);
+        logger.info('Ringtone generated', {
+          event: 'ringtone-generated',
+          path: RINGTONE_PATH,
+        });
         ringtoneReady = true;
       } else {
-        console.error('ffmpeg ringtone generation failed with code', code);
+        logger.error('Ringtone generation failed', {
+          event: 'ringtone-generation-failed',
+          reason: 'ffmpeg-exit-nonzero',
+          exitCode: code,
+        });
       }
       resolve();
     });
-    ff.stderr.on('data', (d) => process.stderr.write('[ringtone ffmpeg] ' + d));
+    ff.stderr.on('data', (d) => {
+      mediaWsLogger.warn('Ringtone ffmpeg stderr', {
+        event: 'ringtone-ffmpeg-stderr',
+        detail: d.toString('utf8').trim(),
+      });
+    });
   });
 }
 
@@ -111,20 +127,25 @@ const mediaws = new WebSocketServer({
 });
 
 state.setOnSessionStale((session) => {
-  log('Call session stale; ending session', session.callSid);
+  logger.warn('Call session stale; ending session', {
+    callSid: session.callSid,
+    event: 'session-stale',
+    reason: session.clearedReason,
+  });
   if (session.wsConnection && typeof session.wsConnection.close === 'function') {
     try {
       session.wsConnection.close();
     } catch (err) {
-      log('Failed to close stale call WebSocket:', err && err.message ? err.message : err);
+      logger.error('Failed to close stale call websocket', {
+        callSid: session.callSid,
+        event: 'stale-close-failed',
+        reason: 'close-threw',
+        error: err,
+      });
     }
   }
   homekit.endHapSession();
 });
-
-function log(message, ...args) {
-  console.log(new Date().toISOString(), message, ...args);
-}
 
 function handleRequest(request, response) {
   try {
@@ -136,7 +157,11 @@ function handleRequest(request, response) {
     const path = request.url ? request.url.split('?')[0] : '';
     if (request.method === 'POST' && path === '/twiml') {
       handleTwimlRequest(request, response).catch((err) => {
-        console.error(err);
+        twimlLogger.error('Unhandled TwiML handler failure', {
+          event: 'twiml-unhandled-error',
+          reason: 'handler-threw',
+          error: err,
+        });
         if (!response.headersSent) response.writeHead(500);
         response.end('Internal Server Error');
       });
@@ -144,7 +169,11 @@ function handleRequest(request, response) {
     }
     dispatcher.dispatch(request, response);
   } catch (err) {
-    console.error(err);
+    logger.error('HTTP request handling failed', {
+      event: 'request-handler-error',
+      reason: 'handler-threw',
+      error: err,
+    });
     if (!response.headersSent) response.writeHead(500);
     response.end('Internal Server Error');
   }
@@ -165,21 +194,32 @@ function buildTwiml(streamToken) {
 }
 
 async function handleTwimlRequest(req, res) {
-  log('POST /twiml');
+  twimlLogger.info('Incoming TwiML request', {
+    event: 'twiml-request',
+    method: req.method,
+    path: req.url ? req.url.split('?')[0] : '',
+  });
 
   // eslint-disable-next-line no-useless-assignment -- assigned before first use inside try for readable error path
   let rawBody = '';
   try {
     rawBody = await readRequestBody(req, 32 * 1024);
   } catch (err) {
-    log('POST /twiml body read failed:', err.message);
+    twimlLogger.warn('TwiML body read failed', {
+      event: 'twiml-body-read-failed',
+      reason: 'invalid-request-body',
+      error: err,
+    });
     res.writeHead(400);
     res.end('Invalid request body');
     return;
   }
 
   if (!isValidTwilioRequest(req, rawBody)) {
-    log('POST /twiml rejected: invalid Twilio signature');
+    twimlLogger.warn('TwiML request rejected', {
+      event: 'twiml-rejected',
+      reason: 'invalid-twilio-signature',
+    });
     res.writeHead(403);
     res.end('Forbidden');
     return;
@@ -190,6 +230,10 @@ async function handleTwimlRequest(req, res) {
     typeof formData.CallSid === 'string' ? formData.CallSid : null
   );
   const body = buildTwiml(streamToken);
+  twimlLogger.info('TwiML response generated', {
+    event: 'twiml-response',
+    callSid: typeof formData.CallSid === 'string' ? formData.CallSid : undefined,
+  });
   res.writeHead(200, {
     'Content-Type': 'text/xml',
     'Content-Length': Buffer.byteLength(body),
@@ -271,7 +315,10 @@ mediaws.on('request', function (request) {
   const verification = verifyAndConsumeStreamToken(token);
   if (!verification.ok) {
     const verificationError = /** @type {TokenVerificationError} */ (verification);
-    log('Media WS: rejected -', verificationError.reason);
+    mediaWsLogger.warn('Media websocket rejected', {
+      event: 'media-ws-rejected',
+      reason: verificationError.reason,
+    });
     wsRequest.reject(403, 'Unauthorized');
     return;
   }
@@ -279,7 +326,10 @@ mediaws.on('request', function (request) {
   const connection = wsRequest.accept(null, wsRequest.origin);
   activeWsConnections.add(connection);
   connection.on('close', () => activeWsConnections.delete(connection));
-  log('Media WS: connection accepted');
+  mediaWsLogger.info('Media websocket connection accepted', {
+    event: 'media-ws-accepted',
+    callSid: verification.callSid || undefined,
+  });
   new MediaStream(connection, verification.callSid);
 });
 
@@ -312,7 +362,10 @@ class MediaStream {
   processMessage(message) {
     if (message.type !== 'utf8') return;
     if (message.utf8Data.length > MAX_WS_UTF8_BYTES) {
-      log('Media WS: message too large, closing connection');
+      mediaWsLogger.warn('Media websocket message too large', {
+        event: 'media-ws-message-too-large',
+        reason: 'max-message-bytes-exceeded',
+      });
       this.connection.close();
       return;
     }
@@ -321,7 +374,10 @@ class MediaStream {
     try {
       rawData = JSON.parse(message.utf8Data);
     } catch {
-      log('Media WS: invalid JSON message');
+      mediaWsLogger.warn('Media websocket invalid JSON', {
+        event: 'media-ws-invalid-json',
+        reason: 'json-parse-failed',
+      });
       this.connection.close();
       return;
     }
@@ -329,12 +385,18 @@ class MediaStream {
     const parsedResult = parseTwilioWsEvent(rawData);
     if (!parsedResult.ok) {
       const parsedError = /** @type {WsEventParseError} */ (parsedResult);
-      log('Media WS: invalid event payload', parsedError.reason);
+      mediaWsLogger.warn('Media websocket invalid event payload', {
+        event: 'media-ws-invalid-event-payload',
+        reason: parsedError.reason,
+      });
       this.connection.close();
       return;
     }
     if (parsedResult.unsupported) {
-      log('Media WS: unknown event type', parsedResult.event);
+      mediaWsLogger.info('Media websocket unsupported event ignored', {
+        event: 'media-ws-unsupported-event',
+        reason: parsedResult.event,
+      });
       this.messageCount++;
       return;
     }
@@ -342,19 +404,28 @@ class MediaStream {
 
     switch (parsed.event) {
       case 'connected': {
-        log('Media WS: connected', parsed.data);
+        mediaWsLogger.info('Media websocket connected event', {
+          event: 'connected',
+        });
         break;
       }
 
       case 'start': {
         if (this.started) {
-          log('Media WS: duplicate start event');
+          mediaWsLogger.warn('Duplicate media websocket start event', {
+            event: 'start',
+            reason: 'duplicate-start',
+          });
           this.connection.close();
           return;
         }
         const start = parsed.data.start;
         if (this.expectedCallSid && this.expectedCallSid !== start.callSid) {
-          log('Media WS: start rejected due to callSid mismatch');
+          mediaWsLogger.warn('Media websocket start rejected', {
+            callSid: start.callSid,
+            event: 'start',
+            reason: 'callsid-mismatch',
+          });
           this.connection.close();
           return;
         }
@@ -365,11 +436,19 @@ class MediaStream {
         });
         if (!started.ok) {
           const startError = /** @type {{ ok: false, reason: string }} */ (started);
-          log('Media WS: rejecting start -', startError.reason);
+          mediaWsLogger.warn('Media websocket start rejected', {
+            callSid: start.callSid,
+            event: 'start',
+            reason: startError.reason,
+          });
           this.connection.close();
           return;
         }
-        log('Media WS: start', start);
+        mediaWsLogger.info('Media websocket start accepted', {
+          callSid: start.callSid,
+          event: 'start',
+          streamSid: start.streamSid,
+        });
         this.currentCallSid = start.callSid;
         this.started = true;
         homekit.setMulawPassthrough(this.mulawStream);
@@ -379,7 +458,10 @@ class MediaStream {
 
       case 'media': {
         if (!this.started || !this.currentCallSid) {
-          log('Media WS: media received before start');
+          mediaWsLogger.warn('Media frame before start event', {
+            event: 'media',
+            reason: 'media-before-start',
+          });
           this.connection.close();
           return;
         }
@@ -389,7 +471,11 @@ class MediaStream {
         );
         if (!mediaPayload.ok) {
           const mediaPayloadError = /** @type {MediaPayloadParseError} */ (mediaPayload);
-          log(`Media WS: ${mediaPayloadError.reason}`);
+          mediaWsLogger.warn('Media payload rejected', {
+            callSid: this.currentCallSid,
+            event: 'media',
+            reason: mediaPayloadError.reason,
+          });
           this.connection.close();
           return;
         }
@@ -401,7 +487,10 @@ class MediaStream {
       }
 
       case 'stop': {
-        log('Media WS: stop', parsed.data);
+        mediaWsLogger.info('Media websocket stop event', {
+          callSid: this.currentCallSid || undefined,
+          event: 'stop',
+        });
         this._teardown('twilio-stop');
         break;
       }
@@ -417,7 +506,12 @@ class MediaStream {
   _teardown(reason) {
     if (this.closed) return;
     this.closed = true;
-    log('Media WS: session ended', { reason, messages: this.messageCount });
+    mediaWsLogger.info('Media websocket session ended', {
+      callSid: this.currentCallSid || undefined,
+      event: 'session-ended',
+      reason,
+      messageCount: this.messageCount,
+    });
     // Guard: close() can fire without a prior 'stop' event (e.g. network drop).
     this.mulawStream.destroy();
     const { cleared } = state.clearIfConnection(this.connection, reason);
@@ -603,16 +697,27 @@ function isAuthorizedForStatus(req) {
 // ---------------------------------------------------------------------------
 
 wsserver.listen(HTTP_SERVER_PORT, () => {
-  log(`Server listening on port ${HTTP_SERVER_PORT}`);
+  logger.info('Server listening', {
+    event: 'server-start',
+    port: HTTP_SERVER_PORT,
+  });
 });
 
 function beginShutdown(signal) {
   if (shuttingDown) return;
   shuttingDown = true;
-  log(`${signal} received; starting graceful shutdown`);
+  const shutdownStartedAt = Date.now();
+  logger.info('Graceful shutdown started', {
+    event: 'shutdown-start',
+    reason: signal,
+  });
 
   const forceExitTimer = setTimeout(() => {
-    log('Shutdown grace period exceeded; forcing exit');
+    logger.error('Shutdown grace period exceeded; forcing exit', {
+      event: 'shutdown-force-exit',
+      reason: 'grace-period-exceeded',
+      durationMs: SHUTDOWN_GRACE_MS,
+    });
     process.exit(1);
   }, SHUTDOWN_GRACE_MS);
   if (typeof forceExitTimer.unref === 'function') forceExitTimer.unref();
@@ -629,7 +734,10 @@ function beginShutdown(signal) {
   wsserver.close(() => {
     clearTimeout(forceExitTimer);
     state.stop();
-    log('HTTP server closed; shutdown complete');
+    logger.info('Shutdown complete', {
+      event: 'shutdown-complete',
+      durationMs: Date.now() - shutdownStartedAt,
+    });
     process.exit(0);
   });
 }
