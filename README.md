@@ -63,8 +63,11 @@ RPi: server.js (HTTP + WebSocket on one port)
 
 - Raspberry Pi 4 (2 GB RAM recommended) running Raspberry Pi OS (64-bit)
 - Node.js >= 20
+<<<<<<< claude/review-pr-1-D7jE8
+=======
   - Runtime is tested on Node 20+.
   - Repo tooling/CI currently runs on Node 20 and 22.
+>>>>>>> main
 - ffmpeg with libx264 and libopus: `sudo apt install ffmpeg`
 
 ### Accounts and services
@@ -90,6 +93,9 @@ npm install
 cp .env.example .env
 ```
 
+<<<<<<< claude/review-pr-1-D7jE8
+Edit `.env` with your credentials. Each variable is explained inline in `.env.example`.
+=======
 Edit `.env` and fill in:
 
 | Variable              | Where to find it                                            |
@@ -116,6 +122,7 @@ node -e "
   console.log(r(3) + '-' + r(2) + '-' + r(3));
 "
 ```
+>>>>>>> main
 
 ### 3. Cloudflare Tunnel
 
@@ -170,6 +177,9 @@ In the [Twilio Console](https://console.twilio.com/us1/develop/phone-numbers/man
    - Method: **HTTP POST**
 3. Save.
 
+<<<<<<< claude/review-pr-1-D7jE8
+### 5. Pair with HomeKit
+=======
 Security hardening notes:
 
 - `/twiml` now enforces `X-Twilio-Signature` verification with your `TWILIO_AUTH_TOKEN`.
@@ -177,6 +187,7 @@ Security hardening notes:
 - If your externally visible webhook base URL differs from `https://{TUNNEL_HOSTNAME}`, set `TWILIO_WEBHOOK_BASE_URL` explicitly in `.env`.
 
 ### 6. Pair with HomeKit
+>>>>>>> main
 
 Start the server:
 
@@ -191,7 +202,7 @@ After pairing you will see:
 - A **doorbell** tile (rings when the intercom calls)
 - A **lock** tile (tap to unlock — sends DTMF digit 9 to the intercom)
 
-### 7. Install systemd units (production)
+### 6. Install systemd units (production)
 
 ```bash
 # Copy unit files
@@ -255,7 +266,7 @@ Call your Twilio number from any phone (simulate the intercom caller).
 **Pass (server log):**
 
 ```text
-Media WS: start { callSid: 'CA...', streamSid: 'MZ...' }
+2024-01-15T10:00:00.000Z Media WS: start { callSid: 'CA...', streamSid: 'MZ...' }
 [HomeKit] Doorbell triggered
 ```
 
@@ -273,12 +284,6 @@ If the doorbell notification does not appear, check that the RPi and iPhone are 
 ### Stage 5 — Live view opens (inbound audio + video)
 
 Tap the doorbell notification → open the live camera view.
-
-**Pass (server log):**
-
-```text
-[ffIn] started
-```
 
 **Pass (iPhone):** A black video tile appears. You should hear audio from the intercom caller through the iPhone speaker.
 
@@ -330,8 +335,7 @@ Have the intercom caller hang up (or wait for them to go away).
 **Pass (server log):**
 
 ```text
-Media WS: stop ...
-[HomeKit] endHapSession
+2024-01-15T10:00:00.000Z Media WS: stop { event: 'stop', ... }
 ```
 
 **Pass (iPhone):** The live view dismisses automatically.
@@ -345,7 +349,6 @@ Open the live view, then dismiss it on the iPhone (tap the X / end button).
 **Pass (server log):**
 
 ```text
-handleStreamRequest STOP
 [Twilio] Hanging up CA...
 ```
 
@@ -381,10 +384,11 @@ curl https://intercom.yourdomain.com/readyz
 └── package.json
 ```
 
-## Environment variables reference
+## Environment variables
 
-See `.env.example` for the full list. All are required unless marked optional.
-
+<<<<<<< claude/review-pr-1-D7jE8
+See `.env.example` for the full list with descriptions and default values.
+=======
 | Variable                         | Description                                                                                            |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------ |
 | `TWILIO_ACCOUNT_SID`             | Twilio account SID (starts with `AC`)                                                                  |
@@ -402,3 +406,4 @@ See `.env.example` for the full list. All are required unless marked optional.
 | `WS_MAX_MESSAGE_BYTES`           | Maximum accepted UTF-8 WebSocket message size (default: `4096`)                                        |
 | `TWILIO_MEDIA_PAYLOAD_MAX_BYTES` | Maximum decoded Twilio media chunk size in bytes (default: `512`)                                      |
 | `SHUTDOWN_GRACE_MS`              | Graceful shutdown timeout before forced exit (default: `10000`)                                        |
+>>>>>>> main
