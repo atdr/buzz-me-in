@@ -57,7 +57,7 @@ RPi: server.js (HTTP + WebSocket on one port)
 ### Raspberry Pi
 
 - Raspberry Pi 4 (2 GB RAM recommended) running Raspberry Pi OS (64-bit)
-- Node.js >= 18
+- Node.js >= 20
 - ffmpeg with libx264 and libopus: `sudo apt install ffmpeg`
 
 ### Accounts and services
@@ -83,32 +83,7 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env` and fill in:
-
-| Variable | Where to find it |
-| --- | --- |
-| `TWILIO_ACCOUNT_SID` | [Twilio Console](https://console.twilio.com) → Account Info |
-| `TWILIO_AUTH_TOKEN` | Twilio Console → Account Info |
-| `TWILIO_PHONE_NUMBER` | Twilio Console → Phone Numbers |
-| `HAP_USERNAME` | Generate once (see below) |
-| `HAP_PINCODE` | Your choice — format `XXX-XX-XXX` |
-| `HAP_PORT` | Default `47129` — must be open in your firewall/router |
-
-Generate unique values for `HAP_USERNAME` and `HAP_PINCODE`:
-
-```bash
-# HAP_USERNAME — Bluetooth MAC-style address, must be unique on your LAN
-node -e "
-  const b = require('crypto').randomBytes(6);
-  console.log([...b].map(x => x.toString(16).padStart(2,'0').toUpperCase()).join(':'));
-"
-
-# HAP_PINCODE — format XXX-XX-XXX
-node -e "
-  const r = n => String(Math.floor(Math.random() * 10 ** n)).padStart(n, '0');
-  console.log(r(3) + '-' + r(2) + '-' + r(3));
-"
-```
+Edit `.env` with your credentials. Each variable is explained inline in `.env.example`.
 
 ### 3. Cloudflare Tunnel
 
@@ -163,7 +138,7 @@ In the [Twilio Console](https://console.twilio.com/us1/develop/phone-numbers/man
    - Method: **HTTP POST**
 3. Save.
 
-### 6. Pair with HomeKit
+### 5. Pair with HomeKit
 
 Start the server:
 
@@ -178,7 +153,7 @@ After pairing you will see:
 - A **doorbell** tile (rings when the intercom calls)
 - A **lock** tile (tap to unlock — sends DTMF digit 9 to the intercom)
 
-### 7. Install systemd units (production)
+### 6. Install systemd units (production)
 
 ```bash
 # Copy unit files
@@ -240,7 +215,7 @@ Call your Twilio number from any phone (simulate the intercom caller).
 **Pass (server log):**
 
 ```text
-Media WS: start { callSid: 'CA...', streamSid: 'MZ...' }
+2024-01-15T10:00:00.000Z Media WS: start { callSid: 'CA...', streamSid: 'MZ...' }
 [HomeKit] Doorbell triggered
 ```
 
@@ -258,12 +233,6 @@ If the doorbell notification does not appear, check that the RPi and iPhone are 
 ### Stage 5 — Live view opens (inbound audio + video)
 
 Tap the doorbell notification → open the live camera view.
-
-**Pass (server log):**
-
-```text
-[ffIn] started
-```
 
 **Pass (iPhone):** A black video tile appears. You should hear audio from the intercom caller through the iPhone speaker.
 
@@ -315,8 +284,7 @@ Have the intercom caller hang up (or wait for them to go away).
 **Pass (server log):**
 
 ```text
-Media WS: stop ...
-[HomeKit] endHapSession
+2024-01-15T10:00:00.000Z Media WS: stop { event: 'stop', ... }
 ```
 
 **Pass (iPhone):** The live view dismisses automatically.
@@ -330,7 +298,6 @@ Open the live view, then dismiss it on the iPhone (tap the X / end button).
 **Pass (server log):**
 
 ```text
-handleStreamRequest STOP
 [Twilio] Hanging up CA...
 ```
 
@@ -365,17 +332,6 @@ curl https://intercom.yourdomain.com/status
 └── package.json
 ```
 
-## Environment variables reference
+## Environment variables
 
-See `.env.example` for the full list. All are required unless marked optional.
-
-| Variable | Description |
-| --- | --- |
-| `TWILIO_ACCOUNT_SID` | Twilio account SID (starts with `AC`) |
-| `TWILIO_AUTH_TOKEN` | Twilio auth token |
-| `TWILIO_PHONE_NUMBER` | Twilio number receiving intercom calls (E.164) |
-| `PORT` | HTTP server port (default: `8080`) |
-| `TUNNEL_HOSTNAME` | Cloudflare Tunnel hostname used to build the `wss://` URL in TwiML |
-| `HAP_USERNAME` | HAP accessory MAC-style address — must be unique on LAN |
-| `HAP_PINCODE` | HomeKit pairing code (`XXX-XX-XXX`) |
-| `HAP_PORT` | HAP mDNS port (default: `47129`) |
+See `.env.example` for the full list with descriptions and default values.
