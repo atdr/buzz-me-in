@@ -3,6 +3,20 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('../src/core/ws-events-schema');
+const { withEnv, freshRequire } = require('./helpers/env.cjs');
+
+const VALID_ENV = {
+  TWILIO_ACCOUNT_SID: 'AC12345678901234567890123456789012',
+  TWILIO_AUTH_TOKEN: 'test_auth_token',
+  TWILIO_PHONE_NUMBER: '+15551234567',
+  PORT: '8080',
+  TUNNEL_HOSTNAME: 'intercom.example.com',
+  STREAM_AUTH_SECRET: '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef',
+  STATUS_API_TOKEN: '1234567890abcdef',
+  HAP_USERNAME: 'AA:BB:CC:DD:EE:11',
+  HAP_PINCODE: '123-45-678',
+  HAP_PORT: '47129',
+};
 
 describe('ws event schema parsing', () => {
   test('parses valid connected/start/media/stop events', () => {
@@ -100,5 +114,20 @@ describe('media payload parsing', () => {
     const result = parseTwilioMediaPayload(oversized, 512);
     assert.equal(result.ok, false);
     assert.equal(result.reason, 'media payload too large');
+  });
+});
+
+describe('stream auth TwiML helpers', () => {
+  test('builds connect stream TwiML with a consumable token', () => {
+    withEnv(VALID_ENV, () => {
+      const { buildConnectStreamTwiml, verifyAndConsumeStreamToken } = freshRequire(
+        '../../src/core/stream-auth'
+      );
+      const twiml = buildConnectStreamTwiml('CA123');
+      const token = twiml.match(/name="token" value="([^"]+)"/)[1];
+
+      assert.match(twiml, /<Connect><Stream url="wss:\/\/intercom\.example\.com\/media">/);
+      assert.equal(verifyAndConsumeStreamToken(token).ok, true);
+    });
   });
 });

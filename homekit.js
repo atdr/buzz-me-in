@@ -153,9 +153,29 @@ const activeSessions = new Map();
 // PassThrough stream set by server.js each time a Twilio call connects.
 let currentMulawStream = null;
 let onHapSessionStarted = null;
+let onUnlockRequested = null;
 
 function getActiveCall() {
   return state.getActiveCall();
+}
+
+function attachMulawStreamToSession(sessionID, stream) {
+  const session = activeSessions.get(sessionID);
+  if (!session || !stream || !session.ffIn || !session.ffIn.stdin || session.ffIn.stdin.destroyed) {
+    return false;
+  }
+  if (session.mulawStream && session.mulawStream !== stream) {
+    try {
+      session.mulawStream.unpipe(session.ffIn.stdin);
+    } catch {}
+  }
+  session.mulawStream = stream;
+  stream.pipe(session.ffIn.stdin, { end: false });
+  logger.info('Bound mulaw stream to active HomeKit session', {
+    event: 'mulaw-stream-bound',
+    sessionId: sessionID,
+  });
+  return true;
 }
 
 async function prepareStreamSession(request) {
@@ -382,19 +402,6 @@ function _startSession(sessionID, s, request, callback) {
   });
   ffIn.stdin.on('error', () => {}); // suppress EPIPE when stream ends
 
-  // Pipe the buffered/live mulaw stream into ffmpeg stdin.
-  // { end: false } keeps ffmpeg alive when the PassThrough is replaced on the
-  // next call; the STOP handler kills ffmpeg explicitly.
-  if (currentMulawStream) {
-    currentMulawStream.pipe(ffIn.stdin, { end: false });
-  } else {
-    logger.warn('No mulaw stream available for inbound ffmpeg', {
-      event: 'ffin-no-mulaw-stream',
-      reason: 'missing-inbound-stream',
-      sessionId: sessionID,
-    });
-  }
-
   // -------------------------------------------------------------------------
   // Outbound ffmpeg
   //
@@ -478,6 +485,7 @@ function _startSession(sessionID, s, request, callback) {
   });
 
   activeSessions.set(sessionID, { ...s, ffIn, ffOut, sdpPath });
+  attachMulawStreamToSession(sessionID, currentMulawStream);
 
   const activeCall = getActiveCall();
   if (activeCall && onHapSessionStarted) {
@@ -497,9 +505,9 @@ function _stopSession(sessionID, hangUp) {
   activeSessions.delete(sessionID);
 
   if (s.ffIn) {
-    if (currentMulawStream) {
+    if (s.mulawStream || currentMulawStream) {
       try {
-        currentMulawStream.unpipe(s.ffIn.stdin);
+        (s.mulawStream || currentMulawStream).unpipe(s.ffIn.stdin);
       } catch {}
     }
     s.ffIn.kill('SIGINT');
@@ -565,6 +573,7 @@ lockService
     const activeCall = getActiveCall();
     if (value === Characteristic.LockTargetState.UNSECURED && activeCall) {
       try {
+        if (onUnlockRequested) onUnlockRequested(activeCall.callSid);
         await unlockDoor(activeCall.callSid);
         logger.info('Requested Twilio DTMF unlock', {
           event: 'unlock-requested',
@@ -677,6 +686,17 @@ function triggerDoorbell() {
  */
 function setMulawPassthrough(stream) {
   currentMulawStream = stream;
+  let reboundCount = 0;
+  for (const [sessionID, session] of activeSessions.entries()) {
+    if (!session.ffIn || !session.ffIn.stdin || session.ffIn.stdin.destroyed) continue;
+    if (!attachMulawStreamToSession(sessionID, stream)) continue;
+    reboundCount++;
+    logger.info('Rebound mulaw stream to active HomeKit session', {
+      event: 'mulaw-stream-rebound',
+      sessionId: sessionID,
+    });
+  }
+  return reboundCount;
 }
 
 /**
@@ -694,9 +714,14 @@ function setOnHapSessionStarted(handler) {
   onHapSessionStarted = typeof handler === 'function' ? handler : null;
 }
 
+function setOnUnlockRequested(handler) {
+  onUnlockRequested = typeof handler === 'function' ? handler : null;
+}
+
 module.exports = {
   triggerDoorbell,
   setMulawPassthrough,
   endHapSession,
   setOnHapSessionStarted,
+  setOnUnlockRequested,
 };

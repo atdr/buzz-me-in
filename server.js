@@ -14,6 +14,11 @@ const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('./src/core/ws-e
 const config = require('./src/core/config');
 const state = require('./src/core/state');
 const { createRingbackMulawCycle, sendMulawAudio } = require('./src/core/mulaw-audio');
+const {
+  buildConnectStreamTwiml,
+  STREAM_TOKEN_PARAMETER_NAME,
+  verifyAndConsumeStreamToken,
+} = require('./src/core/stream-auth');
 const homekit = require('./homekit');
 const { createLogger } = require('./src/core/log');
 /** @import { connection, request as WebSocketRequest, Message } from 'websocket' */
@@ -21,11 +26,9 @@ const { createLogger } = require('./src/core/log');
 
 const HTTP_SERVER_PORT = config.port;
 const STREAM_PATH = '/media';
-const STREAM_TOKEN_PARAMETER_NAME = 'token';
-const STREAM_TOKEN_VERSION = 1;
+const STREAM_REPLACED_GRACE_MS = 10000;
 const STREAM_START_TIMEOUT_MS = 5000;
 const STATUS_BEARER_PREFIX = 'Bearer ';
-const pendingStreamNonces = new Map();
 const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
 const SHUTDOWN_GRACE_MS = config.shutdownGraceMs;
 let ringtoneReady = false;
@@ -38,7 +41,12 @@ const activeMediaStreamsByCallSid = new Map();
 
 homekit.setOnHapSessionStarted((callSid) => {
   const mediaStream = activeMediaStreamsByCallSid.get(callSid);
-  if (mediaStream) mediaStream.stopRingback('homekit-session-started');
+  if (mediaStream) mediaStream.markHomekitSessionStarted();
+});
+
+homekit.setOnUnlockRequested((callSid) => {
+  const mediaStream = activeMediaStreamsByCallSid.get(callSid);
+  if (mediaStream) mediaStream.expectReplacement('unlock-dtmf');
 });
 
 // ---------------------------------------------------------------------------
@@ -192,14 +200,10 @@ function handleRequest(request, response) {
 // HTTP routes
 // ---------------------------------------------------------------------------
 
-function buildTwiml(streamToken) {
+function buildTwiml(callSid) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Connect>
-    <Stream url="wss://${config.tunnelHostname}${STREAM_PATH}">
-      <Parameter name="${STREAM_TOKEN_PARAMETER_NAME}" value="${escapeXmlAttribute(streamToken)}"/>
-    </Stream>
-  </Connect>
+  ${buildConnectStreamTwiml(callSid)}
 </Response>`;
 }
 
@@ -236,10 +240,8 @@ async function handleTwimlRequest(req, res) {
   }
 
   const formData = parseFormUrlEncoded(rawBody);
-  const streamToken = issueStreamToken(
-    typeof formData.CallSid === 'string' ? formData.CallSid : null
-  );
-  const body = buildTwiml(streamToken);
+  const callSid = typeof formData.CallSid === 'string' ? formData.CallSid : null;
+  const body = buildTwiml(callSid);
   twimlLogger.info('TwiML response generated', {
     event: 'twiml-response',
     callSid: typeof formData.CallSid === 'string' ? formData.CallSid : undefined,
@@ -337,6 +339,9 @@ class MediaStream {
     this.currentCallSid = null;
     this.started = false;
     this.closed = false;
+    this.hasHomekitSession = false;
+    this.replaceExpected = false;
+    this.replaceTimer = null;
     this.ringbackTimer = null;
     this.ringbackOffset = 0;
     this.ringbackPayload = createRingbackMulawCycle();
@@ -351,10 +356,8 @@ class MediaStream {
     }, STREAM_START_TIMEOUT_MS);
     this.startTimeout.unref();
 
-    // Raw mulaw bytes from Twilio flow into this PassThrough.
-    // homekit.js pipes it into the inbound ffmpeg when a HAP session opens.
-    // highWaterMark: 32768 ≈ 4 s of mulaw/8kHz — enough buffer for the user
-    // to see the doorbell notification and tap "View" in the Home app.
+    // Raw mulaw bytes from Twilio flow into this PassThrough only after
+    // HomeKit opens a live view. Pre-live buffering creates catch-up latency.
     this.mulawStream = new PassThrough({ highWaterMark: 32768 });
 
     connection.on('message', this.processMessage.bind(this));
@@ -449,11 +452,14 @@ class MediaStream {
           this.connection.close();
           return;
         }
-        const started = state.startCall({
-          callSid: start.callSid,
-          streamSid: start.streamSid,
-          wsConnection: this.connection,
-        });
+        const previousMediaStream = activeMediaStreamsByCallSid.get(start.callSid);
+        const started = previousMediaStream
+          ? { ok: true }
+          : state.startCall({
+              callSid: start.callSid,
+              streamSid: start.streamSid,
+              wsConnection: this.connection,
+            });
         if (!started.ok) {
           const startError = /** @type {{ ok: false, reason: string }} */ (started);
           mediaWsLogger.warn('Media websocket start rejected', {
@@ -472,10 +478,36 @@ class MediaStream {
         clearTimeout(this.startTimeout);
         this.currentCallSid = start.callSid;
         this.started = true;
+        if (previousMediaStream && previousMediaStream !== this) {
+          if (previousMediaStream.replaceTimer) {
+            clearTimeout(previousMediaStream.replaceTimer);
+            previousMediaStream.replaceTimer = null;
+            previousMediaStream.replaceExpected = false;
+          }
+          const replaced = state.replaceCallConnection({
+            callSid: start.callSid,
+            streamSid: start.streamSid,
+            wsConnection: this.connection,
+          });
+          if (!replaced.ok) {
+            mediaWsLogger.warn('Media websocket replacement rejected', {
+              callSid: start.callSid,
+              event: 'start',
+              reason: replaced.reason,
+            });
+            this.connection.close();
+            return;
+          }
+          previousMediaStream.markReplacedBy(this, 'replacement-media-started');
+        }
         activeMediaStreamsByCallSid.set(start.callSid, this);
-        homekit.setMulawPassthrough(this.mulawStream);
-        homekit.triggerDoorbell();
-        this.startRingback();
+        const reboundSessionCount = homekit.setMulawPassthrough(this.mulawStream);
+        if (reboundSessionCount > 0) {
+          this.markHomekitSessionStarted();
+        } else {
+          homekit.triggerDoorbell();
+          this.startRingback();
+        }
         break;
       }
 
@@ -502,9 +534,11 @@ class MediaStream {
           this.connection.close();
           return;
         }
-        // base64-decode the mulaw payload and push it into the PassThrough.
-        // homekit.js has already piped this stream to ffmpeg's stdin.
-        this.mulawStream.write(mediaPayload.decoded);
+        if (this.hasHomekitSession) {
+          // Only forward live-view audio. Buffering pre-answer audio adds seconds
+          // of catch-up latency when HomeKit finally starts ffmpeg.
+          this.mulawStream.write(mediaPayload.decoded);
+        }
         state.markActivity(this.currentCallSid, 'twilio-media');
         break;
       }
@@ -549,6 +583,35 @@ class MediaStream {
     });
   }
 
+  markHomekitSessionStarted() {
+    this.hasHomekitSession = true;
+    this.stopRingback('homekit-session-started');
+  }
+
+  expectReplacement(reason) {
+    if (this.closed) return;
+    this.replaceExpected = true;
+    if (this.replaceTimer) clearTimeout(this.replaceTimer);
+    this.replaceTimer = setTimeout(() => {
+      this.replaceExpected = false;
+      this.replaceTimer = null;
+      const activeCall = state.getActiveCall();
+      if (activeCall && activeCall.callSid === this.currentCallSid) return;
+      mediaWsLogger.warn('Expected media websocket replacement did not arrive', {
+        callSid: this.currentCallSid || undefined,
+        event: 'media-ws-replacement-timeout',
+        reason: 'replacement-timeout',
+      });
+      homekit.endHapSession();
+    }, STREAM_REPLACED_GRACE_MS);
+    if (typeof this.replaceTimer.unref === 'function') this.replaceTimer.unref();
+    mediaWsLogger.info('Media websocket replacement expected', {
+      callSid: this.currentCallSid || undefined,
+      event: 'media-ws-replacement-expected',
+      reason,
+    });
+  }
+
   sendRingbackFrame() {
     if (!this.currentCallSid || !this.started || this.closed) return;
 
@@ -578,8 +641,10 @@ class MediaStream {
     // Guard: close() can fire without a prior 'stop' event (e.g. network drop).
     this.mulawStream.destroy();
     const { cleared } = state.clearIfConnection(this.connection, reason);
-    if (this.currentCallSid) activeMediaStreamsByCallSid.delete(this.currentCallSid);
-    if (cleared) {
+    if (this.currentCallSid && activeMediaStreamsByCallSid.get(this.currentCallSid) === this) {
+      activeMediaStreamsByCallSid.delete(this.currentCallSid);
+    }
+    if (cleared && !this.replaceExpected) {
       homekit.endHapSession();
     }
   }
@@ -643,16 +708,6 @@ function isValidTwilioRequest(req, rawBody) {
   return twilio.validateRequest(config.twilioAuthToken, signature, requestUrl, params);
 }
 
-function toBase64Url(buffer) {
-  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-function fromBase64Url(value) {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
-  return Buffer.from(padded, 'base64');
-}
-
 function safeEqualString(a, b) {
   const left = Buffer.from(a, 'utf8');
   const right = Buffer.from(b, 'utf8');
@@ -660,100 +715,6 @@ function safeEqualString(a, b) {
   const paddedLeft = Buffer.concat([left, Buffer.alloc(len - left.length)]);
   const paddedRight = Buffer.concat([right, Buffer.alloc(len - right.length)]);
   return crypto.timingSafeEqual(paddedLeft, paddedRight);
-}
-
-/**
- * @param {string} value
- * @returns {string}
- */
-function escapeXmlAttribute(value) {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-}
-
-function pruneExpiredNonces() {
-  const now = Math.floor(Date.now() / 1000);
-  for (const [nonce, data] of pendingStreamNonces.entries()) {
-    if (data.exp <= now) pendingStreamNonces.delete(nonce);
-  }
-}
-
-/**
- * @param {string | null} callSid
- * @returns {string}
- */
-function issueStreamToken(callSid) {
-  pruneExpiredNonces();
-
-  const now = Math.floor(Date.now() / 1000);
-  const exp = now + config.streamAuthTtlSec;
-  const nonce = crypto.randomBytes(16).toString('hex');
-
-  pendingStreamNonces.set(nonce, { exp, callSid });
-
-  const payload = {
-    v: STREAM_TOKEN_VERSION,
-    iat: now,
-    exp,
-    nonce,
-    callSid,
-  };
-
-  const payloadEncoded = toBase64Url(Buffer.from(JSON.stringify(payload), 'utf8'));
-  const signature = toBase64Url(
-    crypto.createHmac('sha256', config.streamAuthSecret).update(payloadEncoded).digest()
-  );
-  return `${payloadEncoded}.${signature}`;
-}
-
-/**
- * @param {string} token
- * @returns {StreamTokenVerificationResult}
- */
-function verifyAndConsumeStreamToken(token) {
-  pruneExpiredNonces();
-  if (!token) return { ok: false, reason: 'missing token' };
-
-  const pieces = token.split('.');
-  if (pieces.length !== 2) return { ok: false, reason: 'invalid token format' };
-  const [payloadEncoded, providedSig] = pieces;
-  const expectedSig = toBase64Url(
-    crypto.createHmac('sha256', config.streamAuthSecret).update(payloadEncoded).digest()
-  );
-  if (!safeEqualString(providedSig, expectedSig)) {
-    return { ok: false, reason: 'invalid token signature' };
-  }
-
-  let payload;
-  try {
-    payload = JSON.parse(fromBase64Url(payloadEncoded).toString('utf8'));
-  } catch {
-    return { ok: false, reason: 'invalid token payload' };
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  if (
-    payload.v !== STREAM_TOKEN_VERSION ||
-    !payload.nonce ||
-    payload.exp <= now ||
-    payload.iat > now + 30
-  ) {
-    return { ok: false, reason: 'expired or malformed token' };
-  }
-
-  const pending = pendingStreamNonces.get(payload.nonce);
-  if (!pending) return { ok: false, reason: 'nonce not pending' };
-  if (pending.exp !== payload.exp || pending.callSid !== payload.callSid) {
-    pendingStreamNonces.delete(payload.nonce);
-    return { ok: false, reason: 'nonce payload mismatch' };
-  }
-
-  pendingStreamNonces.delete(payload.nonce);
-  return { ok: true, callSid: payload.callSid || null };
 }
 
 /**

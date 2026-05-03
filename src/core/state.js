@@ -62,6 +62,25 @@ class CallSessionManager {
   }
 
   /**
+   * @param {{ callSid: string, streamSid: string, wsConnection: WebSocketConnection }} input
+   * @returns {StartCallResult}
+   */
+  replaceCallConnection({ callSid, streamSid, wsConnection }) {
+    if (!callSid || !streamSid || !wsConnection) {
+      return { ok: false, reason: 'invalid session payload' };
+    }
+    const active = this.getActiveCall();
+    if (!active || active.callSid !== callSid) {
+      return { ok: false, reason: 'active call mismatch' };
+    }
+
+    active.streamSid = streamSid;
+    active.wsConnection = wsConnection;
+    this.markActivity(callSid, 'stream-replaced');
+    return { ok: true, session: active };
+  }
+
+  /**
    * @returns {CallSession | null}
    */
   getActiveCall() {

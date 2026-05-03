@@ -122,7 +122,7 @@
  */
 
 /**
- * @typedef {{ ok: true, session: CallSession } | { ok: false, reason: string }} StartCallResult
+ * @typedef {{ ok: true, session: CallSession, replaced?: boolean } | { ok: false, reason: string }} StartCallResult
  */
 
 /**

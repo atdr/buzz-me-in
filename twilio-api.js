@@ -13,6 +13,7 @@
 
 const twilio = require('twilio');
 const config = require('./src/core/config');
+const { buildConnectStreamTwiml: buildStreamTwiml } = require('./src/core/stream-auth');
 
 let _client = null;
 function client() {
@@ -29,9 +30,11 @@ function client() {
  */
 async function unlockDoor(callSid) {
   console.log(`[Twilio] Sending DTMF unlock to ${callSid}`);
-  return client().calls(callSid).update({
-    twiml: `<Response><Play digits="9"/><Pause length="300"/></Response>`,
-  });
+  return client()
+    .calls(callSid)
+    .update({
+      twiml: `<Response><Play digits="9"/>${buildConnectStreamTwiml(callSid)}</Response>`,
+    });
 }
 
 /**
@@ -56,6 +59,10 @@ function isCallAlreadyEndedError(error) {
   return (
     error && typeof error.message === 'string' && error.message.includes('Call is not in-progress')
   );
+}
+
+function buildConnectStreamTwiml(callSid) {
+  return buildStreamTwiml(callSid, config.tunnelHostname);
 }
 
 module.exports = { hangUpCall, unlockDoor };
