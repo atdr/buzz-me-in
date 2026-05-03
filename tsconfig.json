@@ -3,9 +3,9 @@
     "allowJs": true,
     "checkJs": true,
     "noEmit": true,
-    "module": "commonjs",
+    "module": "node16",
     "target": "ES2022",
-    "moduleResolution": "node",
+    "moduleResolution": "node16",
     "skipLibCheck": true,
     "strict": false,
     "noImplicitAny": false
