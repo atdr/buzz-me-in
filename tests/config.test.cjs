@@ -25,6 +25,7 @@ test('config loads valid configuration and defaults', () => {
     assert.equal(config.wsMaxMessageBytes, 4096);
     assert.equal(config.twilioMediaPayloadMaxBytes, 512);
     assert.equal(config.shutdownGraceMs, 10000);
+    assert.equal(config.twilioUnlockDigits, 'w9w');
   });
 });
 

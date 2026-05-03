@@ -23,39 +23,27 @@ function client() {
 }
 
 /**
- * Send DTMF digit "9" mid-call to open the intercom door.
- * The TwiML includes a follow-up <Pause> so the call stays alive
- * and the media stream continues after the tone is sent.
- */
-async function unlockDoor(callSid) {
-  console.log(`[Twilio] Sending DTMF unlock to ${callSid}`);
-  return client().calls(callSid).update({
-    twiml: `<Response><Play digits="9"/><Pause length="300"/></Response>`,
-  });
-}
-
-/**
- * Stop ringing and hold the call open silently.
- * Called when HomeKit opens the camera live view (handleStreamRequest START).
- * Replaces the looping <Play> with a plain <Pause> so the media stream
- * continues without interruption.
- */
-async function answerCall(callSid) {
-  console.log(`[Twilio] Answering (stopping ringtone) for ${callSid}`);
-  return client().calls(callSid).update({
-    twiml: `<Response><Pause length="300"/></Response>`,
-  });
-}
-
-/**
  * Terminate the call immediately.
  * Called when the HomeKit session is dismissed by the user.
  */
 async function hangUpCall(callSid) {
   console.log(`[Twilio] Hanging up ${callSid}`);
-  return client().calls(callSid).update({
-    twiml: `<Response><Hangup/></Response>`,
-  });
+  try {
+    return await client().calls(callSid).update({
+      twiml: `<Response><Hangup/></Response>`,
+    });
+  } catch (error) {
+    if (isCallAlreadyEndedError(error)) {
+      return { alreadyEnded: true, callSid };
+    }
+    throw error;
+  }
 }
 
-module.exports = { answerCall, unlockDoor, hangUpCall };
+function isCallAlreadyEndedError(error) {
+  return (
+    error && typeof error.message === 'string' && error.message.includes('Call is not in-progress')
+  );
+}
+
+module.exports = { hangUpCall };

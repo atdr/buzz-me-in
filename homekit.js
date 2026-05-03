@@ -26,8 +26,9 @@ const { spawn } = require('child_process');
 
 const config = require('./src/core/config');
 const state = require('./src/core/state');
+const { sendDtmfSequence, sendMulawAudio } = require('./src/core/mulaw-audio');
 const { createLogger } = require('./src/core/log');
-const { answerCall, hangUpCall, unlockDoor } = require('./twilio-api');
+const { hangUpCall } = require('./twilio-api');
 
 const {
   Accessory,
@@ -77,7 +78,8 @@ function getAvailablePort() {
 }
 
 function randomSSRC() {
-  return crypto.randomBytes(4).readUInt32BE(0);
+  // ffmpeg's RTP muxer parses -ssrc as a signed 32-bit integer option.
+  return crypto.randomBytes(4).readUInt32BE(0) & 0x7fffffff;
 }
 
 /**
@@ -150,9 +152,70 @@ const activeSessions = new Map();
 
 // PassThrough stream set by server.js each time a Twilio call connects.
 let currentMulawStream = null;
+let onHapSessionStarted = null;
 
 function getActiveCall() {
   return state.getActiveCall();
+}
+
+function attachMulawStreamToSession(sessionID, stream) {
+  const session = activeSessions.get(sessionID);
+  if (!session || !stream || !session.ffIn || !session.ffIn.stdin || session.ffIn.stdin.destroyed) {
+    return false;
+  }
+  if (session.mulawStream && session.mulawStream !== stream) {
+    try {
+      session.mulawStream.unpipe(session.ffIn.stdin);
+    } catch {}
+  }
+  session.mulawStream = stream;
+  stream.pipe(session.ffIn.stdin, { end: false });
+  logger.info('Bound mulaw stream to active HomeKit session', {
+    event: 'mulaw-stream-bound',
+    sessionId: sessionID,
+  });
+  return true;
+}
+
+async function prepareStreamSession(request) {
+  const returnAudioPort = await getAvailablePort();
+  const videoSsrc = randomSSRC();
+  const audioSsrc = randomSSRC();
+
+  // getAvailablePort() for our "video receive" slot -- we never actually
+  // receive video from HomeKit, but HAP requires us to declare a port.
+  const dummyVideoPort = await getAvailablePort();
+
+  activeSessions.set(request.sessionID, {
+    targetAddress: request.targetAddress,
+    hkVideoPort: request.video.port,
+    hkVideoKey: request.video.srtp_key,
+    hkVideoSalt: request.video.srtp_salt,
+    hkAudioPort: request.audio.port,
+    hkAudioKey: request.audio.srtp_key,
+    hkAudioSalt: request.audio.srtp_salt,
+    returnAudioPort,
+    returnAudioKey: request.audio.srtp_key,
+    returnAudioSalt: request.audio.srtp_salt,
+    videoSsrc,
+    audioSsrc,
+  });
+
+  return {
+    address: { address: getLocalIp(), type: 'v4' },
+    video: {
+      port: dummyVideoPort,
+      ssrc: videoSsrc,
+      srtp_key: request.video.srtp_key,
+      srtp_salt: request.video.srtp_salt,
+    },
+    audio: {
+      port: returnAudioPort,
+      ssrc: audioSsrc,
+      srtp_key: request.audio.srtp_key,
+      srtp_salt: request.audio.srtp_salt,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -164,43 +227,18 @@ const streamingDelegate = {
     callback(undefined, snapshotJpeg || FALLBACK_JPEG);
   },
 
-  async prepareStream(request, callback) {
-    const returnAudioPort = await getAvailablePort();
-    const returnAudioKey = crypto.randomBytes(16);
-    const returnAudioSalt = crypto.randomBytes(14);
-
-    // getAvailablePort() for our "video receive" slot — we never actually
-    // receive video from HomeKit, but HAP requires us to declare a port.
-    const dummyVideoPort = await getAvailablePort();
-
-    activeSessions.set(request.sessionID, {
-      targetAddress: request.targetAddress,
-      hkVideoPort: request.video.port,
-      hkVideoKey: request.video.srtp_key,
-      hkVideoSalt: request.video.srtp_salt,
-      hkAudioPort: request.audio.port,
-      hkAudioKey: request.audio.srtp_key,
-      hkAudioSalt: request.audio.srtp_salt,
-      returnAudioPort,
-      returnAudioKey,
-      returnAudioSalt,
-    });
-
-    callback({
-      address: { address: getLocalIp(), type: 'v4' },
-      video: {
-        port: dummyVideoPort,
-        ssrc: randomSSRC(),
-        srtp_key: crypto.randomBytes(16),
-        srtp_salt: crypto.randomBytes(14),
-      },
-      audio: {
-        port: returnAudioPort,
-        ssrc: randomSSRC(),
-        srtp_key: returnAudioKey,
-        srtp_salt: returnAudioSalt,
-      },
-    });
+  prepareStream(request, callback) {
+    prepareStreamSession(request)
+      .then((response) => callback(undefined, response))
+      .catch((error) => {
+        logger.error('Failed to prepare HomeKit stream', {
+          event: 'stream-prepare-failed',
+          reason: 'prepare-error',
+          sessionId: request.sessionID,
+          error,
+        });
+        callback(error);
+      });
   },
 
   handleStreamRequest(request, callback) {
@@ -211,7 +249,7 @@ const streamingDelegate = {
     }
 
     if (request.type === StreamRequestTypes.START) {
-      _startSession(request.sessionID, s, callback);
+      _startSession(request.sessionID, s, request, callback);
     } else if (request.type === StreamRequestTypes.RECONFIGURE) {
       // Static source — ignore bitrate/resolution change requests.
       callback();
@@ -226,18 +264,21 @@ const streamingDelegate = {
 // Session start: spawn inbound and outbound ffmpeg processes
 // ---------------------------------------------------------------------------
 
-function _startSession(sessionID, s, callback) {
+function _startSession(sessionID, s, request, callback) {
   const videoParams = srtpParams(s.hkVideoKey, s.hkVideoSalt);
   const audioParams = srtpParams(s.hkAudioKey, s.hkAudioSalt);
+  const video = request.video;
+  const audio = request.audio;
+  const videoBitrate = Math.max(64, video.max_bit_rate || 200);
+  const videoBufferSize = Math.max(videoBitrate * 2, 128);
+  const mtu = video.mtu || 1316;
 
   // -------------------------------------------------------------------------
   // Inbound ffmpeg
   //
   // Input 0  – raw mulaw/8kHz from Twilio via stdin
-  //   -use_wallclock_as_timestamps 1
-  //     Timestamps from wall clock, not accumulated byte count.
-  //     Without this, any jitter in Twilio packet delivery causes pts drift
-  //     that eventually makes ffmpeg drop or duplicate audio frames.
+  //   Let the raw audio demuxer derive PTS from sample count. Using wall-clock
+  //   timestamps breaks when ffmpeg drains the buffered startup audio burst.
   //
   // Input 1  – synthetic black video (lavfi color source)
   //   Generates H.264 Baseline/3.1 frames at 15 fps.
@@ -254,8 +295,8 @@ function _startSession(sessionID, s, callback) {
     'warning',
 
     // ---- Input 0: raw mulaw from Twilio ----
-    '-use_wallclock_as_timestamps',
-    '1',
+    '-thread_queue_size',
+    '512',
     '-f',
     'mulaw',
     '-ar',
@@ -287,22 +328,26 @@ function _startSession(sessionID, s, callback) {
     '-pix_fmt',
     'yuv420p',
     '-b:v',
-    '200k',
+    `${videoBitrate}k`,
     '-maxrate',
-    '200k',
+    `${videoBitrate}k`,
     '-bufsize',
-    '400k',
+    `${videoBufferSize}k`,
     '-g',
-    '15',
+    String(video.fps || 15),
     '-keyint_min',
-    '15',
+    String(video.fps || 15),
+    '-payload_type',
+    String(video.pt),
+    '-ssrc',
+    String(s.videoSsrc),
     '-f',
     'rtp',
     '-srtp_out_suite',
     'AES_CM_128_HMAC_SHA1_80',
     '-srtp_out_params',
     videoParams,
-    `srtp://${s.targetAddress}:${s.hkVideoPort}?rtcpport=${s.hkVideoPort + 1}`,
+    `srtp://${s.targetAddress}:${s.hkVideoPort}?rtcpport=${s.hkVideoPort}&localrtcpport=${s.hkVideoPort}&pkt_size=${mtu}`,
 
     // ---- Audio output → HomeKit SRTP (Opus/16kHz) ----
     //
@@ -325,13 +370,17 @@ function _startSession(sessionID, s, callback) {
     'voip',
     '-frame_duration',
     '20',
+    '-payload_type',
+    String(audio.pt),
+    '-ssrc',
+    String(s.audioSsrc),
     '-f',
     'rtp',
     '-srtp_out_suite',
     'AES_CM_128_HMAC_SHA1_80',
     '-srtp_out_params',
     audioParams,
-    `srtp://${s.targetAddress}:${s.hkAudioPort}?rtcpport=${s.hkAudioPort + 1}`,
+    `srtp://${s.targetAddress}:${s.hkAudioPort}?rtcpport=${s.hkAudioPort}&localrtcpport=${s.hkAudioPort}`,
   ]);
 
   ffIn.stderr.on('data', (d) => {
@@ -352,19 +401,6 @@ function _startSession(sessionID, s, callback) {
   });
   ffIn.stdin.on('error', () => {}); // suppress EPIPE when stream ends
 
-  // Pipe the buffered/live mulaw stream into ffmpeg stdin.
-  // { end: false } keeps ffmpeg alive when the PassThrough is replaced on the
-  // next call; the STOP handler kills ffmpeg explicitly.
-  if (currentMulawStream) {
-    currentMulawStream.pipe(ffIn.stdin, { end: false });
-  } else {
-    logger.warn('No mulaw stream available for inbound ffmpeg', {
-      event: 'ffin-no-mulaw-stream',
-      reason: 'missing-inbound-stream',
-      sessionId: sessionID,
-    });
-  }
-
   // -------------------------------------------------------------------------
   // Outbound ffmpeg
   //
@@ -373,11 +409,8 @@ function _startSession(sessionID, s, callback) {
   //
   // The SDP file tells ffmpeg how to receive and decrypt the SRTP stream.
   //
-  // Payload type 110 is what hap-nodejs assigns to Opus in its RTSP/HAP
-  // negotiation. Verify with:
-  //   tcpdump -i lo -n 'udp port <returnAudioPort>' -X | head -40
-  // The RTP payload type is in byte 1 of the RTP header (& 0x7F).
-  // If it differs, update the m= and a=rtpmap: lines accordingly.
+  // Use the negotiated Opus payload type from HomeKit's START request; older
+  // versions assumed 110, which breaks when the controller chooses otherwise.
   // -------------------------------------------------------------------------
   const returnParams = srtpParams(s.returnAudioKey, s.returnAudioSalt);
   const sdpPath = `/tmp/intercom_return_${sessionID}.sdp`;
@@ -390,9 +423,9 @@ function _startSession(sessionID, s, callback) {
       's=Return Audio',
       'c=IN IP4 127.0.0.1',
       't=0 0',
-      `m=audio ${s.returnAudioPort} RTP/SAVP 110`,
-      'a=rtpmap:110 opus/48000/2',
-      'a=fmtp:110 minptime=10;useinbandfec=1',
+      `m=audio ${s.returnAudioPort} RTP/SAVP ${audio.pt}`,
+      `a=rtpmap:${audio.pt} opus/48000/2`,
+      `a=fmtp:${audio.pt} minptime=10;useinbandfec=1`,
       `a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:${returnParams}`,
       'a=recvonly',
       '',
@@ -446,30 +479,16 @@ function _startSession(sessionID, s, callback) {
   ffOut.stdout.on('data', (chunk) => {
     const activeCall = getActiveCall();
     if (!activeCall || !activeCall.wsConnection || !activeCall.streamSid) return;
-    activeCall.wsConnection.sendUTF(
-      JSON.stringify({
-        event: 'media',
-        streamSid: activeCall.streamSid,
-        media: { payload: chunk.toString('base64') },
-      })
-    );
+    sendMulawAudio(activeCall, chunk);
     state.markActivity(activeCall.callSid, 'homekit-outbound-media');
   });
 
   activeSessions.set(sessionID, { ...s, ffIn, ffOut, sdpPath });
+  attachMulawStreamToSession(sessionID, currentMulawStream);
 
-  // Stop the ringtone playing to the caller and hold the call silently.
   const activeCall = getActiveCall();
-  if (activeCall) {
-    answerCall(activeCall.callSid).catch((error) => {
-      logger.error('Failed to answer call while starting HomeKit session', {
-        event: 'answer-call-failed',
-        reason: 'twilio-answer-failed',
-        callSid: activeCall.callSid,
-        sessionId: sessionID,
-        error,
-      });
-    });
+  if (activeCall && onHapSessionStarted) {
+    onHapSessionStarted(activeCall.callSid);
   }
 
   callback();
@@ -482,11 +501,12 @@ function _startSession(sessionID, s, callback) {
 function _stopSession(sessionID, hangUp) {
   const s = activeSessions.get(sessionID);
   if (!s) return;
+  activeSessions.delete(sessionID);
 
   if (s.ffIn) {
-    if (currentMulawStream) {
+    if (s.mulawStream || currentMulawStream) {
       try {
-        currentMulawStream.unpipe(s.ffIn.stdin);
+        (s.mulawStream || currentMulawStream).unpipe(s.ffIn.stdin);
       } catch {}
     }
     s.ffIn.kill('SIGINT');
@@ -498,19 +518,28 @@ function _stopSession(sessionID, hangUp) {
     } catch {}
   }
 
-  activeSessions.delete(sessionID);
-
   const activeCall = getActiveCall();
   if (hangUp && activeCall) {
-    hangUpCall(activeCall.callSid).catch((error) => {
-      logger.error('Failed to hang up call while stopping HomeKit session', {
-        event: 'hangup-call-failed',
-        reason: 'twilio-hangup-failed',
-        callSid: activeCall.callSid,
-        sessionId: sessionID,
-        error,
+    hangUpCall(activeCall.callSid)
+      .then((result) => {
+        if (result && result.alreadyEnded) {
+          logger.info('Twilio call already ended while stopping HomeKit session', {
+            event: 'hangup-call-already-ended',
+            reason: 'twilio-call-not-in-progress',
+            callSid: activeCall.callSid,
+            sessionId: sessionID,
+          });
+        }
+      })
+      .catch((error) => {
+        logger.error('Failed to hang up call while stopping HomeKit session', {
+          event: 'hangup-call-failed',
+          reason: 'twilio-hangup-failed',
+          callSid: activeCall.callSid,
+          sessionId: sessionID,
+          error,
+        });
       });
-    });
   }
 }
 
@@ -543,11 +572,17 @@ lockService
     const activeCall = getActiveCall();
     if (value === Characteristic.LockTargetState.UNSECURED && activeCall) {
       try {
-        await unlockDoor(activeCall.callSid);
+        await sendDtmfSequence(activeCall, config.twilioUnlockDigits);
+        state.markActivity(activeCall.callSid, 'unlock-dtmf');
+        logger.info('Sent DTMF unlock over active media stream', {
+          event: 'unlock-requested',
+          callSid: activeCall.callSid,
+          digits: config.twilioUnlockDigits,
+        });
       } catch (error) {
         logger.error('Unlock door request failed', {
           event: 'unlock-failed',
-          reason: 'twilio-unlock-failed',
+          reason: 'dtmf-send-failed',
           callSid: activeCall.callSid,
           error,
         });
@@ -651,6 +686,17 @@ function triggerDoorbell() {
  */
 function setMulawPassthrough(stream) {
   currentMulawStream = stream;
+  let reboundCount = 0;
+  for (const [sessionID, session] of activeSessions.entries()) {
+    if (!session.ffIn || !session.ffIn.stdin || session.ffIn.stdin.destroyed) continue;
+    if (!attachMulawStreamToSession(sessionID, stream)) continue;
+    reboundCount++;
+    logger.info('Rebound mulaw stream to active HomeKit session', {
+      event: 'mulaw-stream-rebound',
+      sessionId: sessionID,
+    });
+  }
+  return reboundCount;
 }
 
 /**
@@ -664,4 +710,13 @@ function endHapSession() {
   }
 }
 
-module.exports = { triggerDoorbell, setMulawPassthrough, endHapSession };
+function setOnHapSessionStarted(handler) {
+  onHapSessionStarted = typeof handler === 'function' ? handler : null;
+}
+
+module.exports = {
+  triggerDoorbell,
+  setMulawPassthrough,
+  endHapSession,
+  setOnHapSessionStarted,
+};
