@@ -494,6 +494,7 @@ function _startSession(sessionID, s, request, callback) {
 function _stopSession(sessionID, hangUp) {
   const s = activeSessions.get(sessionID);
   if (!s) return;
+  activeSessions.delete(sessionID);
 
   if (s.ffIn) {
     if (currentMulawStream) {
@@ -510,19 +511,28 @@ function _stopSession(sessionID, hangUp) {
     } catch {}
   }
 
-  activeSessions.delete(sessionID);
-
   const activeCall = getActiveCall();
   if (hangUp && activeCall) {
-    hangUpCall(activeCall.callSid).catch((error) => {
-      logger.error('Failed to hang up call while stopping HomeKit session', {
-        event: 'hangup-call-failed',
-        reason: 'twilio-hangup-failed',
-        callSid: activeCall.callSid,
-        sessionId: sessionID,
-        error,
+    hangUpCall(activeCall.callSid)
+      .then((result) => {
+        if (result && result.alreadyEnded) {
+          logger.info('Twilio call already ended while stopping HomeKit session', {
+            event: 'hangup-call-already-ended',
+            reason: 'twilio-call-not-in-progress',
+            callSid: activeCall.callSid,
+            sessionId: sessionID,
+          });
+        }
+      })
+      .catch((error) => {
+        logger.error('Failed to hang up call while stopping HomeKit session', {
+          event: 'hangup-call-failed',
+          reason: 'twilio-hangup-failed',
+          callSid: activeCall.callSid,
+          sessionId: sessionID,
+          error,
+        });
       });
-    });
   }
 }
 

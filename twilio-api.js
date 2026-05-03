@@ -40,9 +40,22 @@ async function unlockDoor(callSid) {
  */
 async function hangUpCall(callSid) {
   console.log(`[Twilio] Hanging up ${callSid}`);
-  return client().calls(callSid).update({
-    twiml: `<Response><Hangup/></Response>`,
-  });
+  try {
+    return await client().calls(callSid).update({
+      twiml: `<Response><Hangup/></Response>`,
+    });
+  } catch (error) {
+    if (isCallAlreadyEndedError(error)) {
+      return { alreadyEnded: true, callSid };
+    }
+    throw error;
+  }
+}
+
+function isCallAlreadyEndedError(error) {
+  return (
+    error && typeof error.message === 'string' && error.message.includes('Call is not in-progress')
+  );
 }
 
 module.exports = { hangUpCall, unlockDoor };
