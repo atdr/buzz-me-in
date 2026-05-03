@@ -6,7 +6,7 @@
  */
 
 /**
- * @typedef {'connected' | 'start' | 'media' | 'stop'} SupportedWsEventName
+ * @typedef {'connected' | 'start' | 'media' | 'dtmf' | 'stop'} SupportedWsEventName
  */
 
 /**
@@ -28,11 +28,18 @@
  */
 
 /**
+ * @typedef {{
+ *   event: 'dtmf',
+ *   dtmf?: { digit?: string, track?: string }
+ * }} DtmfEvent
+ */
+
+/**
  * @typedef {{ event: 'stop' }} StopEvent
  */
 
 /**
- * @typedef {ConnectedEvent | StartEvent | MediaEvent | StopEvent} SupportedWsEventData
+ * @typedef {ConnectedEvent | StartEvent | MediaEvent | DtmfEvent | StopEvent} SupportedWsEventData
  */
 
 /**
@@ -51,6 +58,11 @@
  *   unsupported: false,
  *   event: 'media',
  *   data: MediaEvent
+ * } | {
+ *   ok: true,
+ *   unsupported: false,
+ *   event: 'dtmf',
+ *   data: DtmfEvent
  * } | {
  *   ok: true,
  *   unsupported: false,

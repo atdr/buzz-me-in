@@ -479,7 +479,9 @@ function _startSession(sessionID, s, request, callback) {
   ffOut.stdout.on('data', (chunk) => {
     const activeCall = getActiveCall();
     if (!activeCall || !activeCall.wsConnection || !activeCall.streamSid) return;
-    sendMulawAudio(activeCall, chunk);
+    const connection = /** @type {{ dropHomekitOutbound?: boolean }} */ (activeCall.wsConnection);
+    if (connection.dropHomekitOutbound) return;
+    sendMulawAudio(activeCall, chunk, { source: 'homekit' });
     state.markActivity(activeCall.callSid, 'homekit-outbound-media');
   });
 

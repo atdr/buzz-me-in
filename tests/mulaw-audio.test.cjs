@@ -57,11 +57,18 @@ describe('mu-law audio helpers', () => {
 
   test('sends DTMF sequence to Twilio media stream in 20ms chunks', async () => {
     const sent = [];
+    let dtmfActive = false;
     const activeCall = {
       streamSid: 'MZ123',
       wsConnection: {
         sendUTF(message) {
           sent.push(JSON.parse(message));
+        },
+        beginDtmf() {
+          dtmfActive = true;
+        },
+        endDtmf() {
+          dtmfActive = false;
         },
       },
     };
@@ -69,6 +76,7 @@ describe('mu-law audio helpers', () => {
     await sendDtmfSequence(activeCall, 'w9', { toneMs: 40, trailingSilenceMs: 0, chunkMs: 20 });
 
     assert.equal(sent.length, 2);
+    assert.equal(dtmfActive, false);
     assert.equal(sent[0].event, 'media');
     assert.equal(sent[0].streamSid, 'MZ123');
     assert.equal(Buffer.from(sent[0].media.payload, 'base64').length, 160);
