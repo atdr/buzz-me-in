@@ -489,7 +489,7 @@ class MediaStream {
             streamSid: start.streamSid,
             wsConnection: this.connection,
           });
-          if (!replaced.ok) {
+          if (replaced.ok === false) {
             mediaWsLogger.warn('Media websocket replacement rejected', {
               callSid: start.callSid,
               event: 'start',
