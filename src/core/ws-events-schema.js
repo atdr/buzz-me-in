@@ -34,20 +34,11 @@ const stopEventSchema = z.object({
   event: z.literal('stop'),
 });
 
-const dtmfEventSchema = z.object({
-  event: z.literal('dtmf'),
-  dtmf: z.object({
-    digit: z.string().optional(),
-    track: z.string().optional(),
-  }),
-});
-
 const supportedEventSchema = z.discriminatedUnion('event', [
   connectedEventSchema,
   startEventSchema,
   mediaEventSchema,
   stopEventSchema,
-  dtmfEventSchema,
 ]);
 /** @type {Set<string>} */
 const SUPPORTED_EVENTS = new Set(
@@ -88,8 +79,6 @@ function parseTwilioWsEvent(raw) {
       return { ok: true, unsupported: false, event: 'media', data: parsed.data };
     case 'stop':
       return { ok: true, unsupported: false, event: 'stop', data: parsed.data };
-    case 'dtmf':
-      return { ok: true, unsupported: false, event: 'dtmf', data: parsed.data };
   }
 }
 

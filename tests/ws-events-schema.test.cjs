@@ -47,11 +47,6 @@ describe('ws event schema parsing', () => {
     const stop = parseTwilioWsEvent({ event: 'stop' });
     assert.equal(stop.ok, true);
     assert.equal(stop.data.event, 'stop');
-
-    const dtmf = parseTwilioWsEvent({ event: 'dtmf', dtmf: { digit: '9' } });
-    assert.equal(dtmf.ok, true);
-    assert.equal(dtmf.event, 'dtmf');
-    assert.equal(dtmf.data.dtmf.digit, '9');
   });
 
   test('treats unknown events as ignored', () => {

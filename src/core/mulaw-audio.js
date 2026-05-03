@@ -4,8 +4,6 @@ const SAMPLE_RATE_HZ = 8000;
 const DEFAULT_DTMF_TONE_MS = 650;
 const DEFAULT_DTMF_TRAILING_SILENCE_MS = 120;
 const DEFAULT_CHUNK_MS = 20;
-const DEFAULT_SHORT_PAUSE_MS = 500;
-const DEFAULT_LONG_PAUSE_MS = 1000;
 const RINGBACK_BURST_MS = 400;
 const RINGBACK_GAP_MS = 200;
 const RINGBACK_TAIL_MS = 2000;
@@ -131,17 +129,12 @@ function createDualToneMulaw(lowFrequency, highFrequency, durationMs, amplitude)
 }
 
 /**
- * @param {{ streamSid: string, wsConnection: { sendUTF: (message: string) => void, sendMediaPayload?: (payload: Buffer, options?: { source?: string }) => void } }} activeCall
+ * @param {{ streamSid: string, wsConnection: { sendUTF: (message: string) => void } }} activeCall
  * @param {Buffer} payload
- * @param {{ source?: string }} [options]
  */
-function sendMulawAudio(activeCall, payload, options = {}) {
+function sendMulawAudio(activeCall, payload) {
   if (!activeCall || !activeCall.streamSid || !activeCall.wsConnection) {
     throw new Error('Cannot send audio without an active media stream');
-  }
-  if (typeof activeCall.wsConnection.sendMediaPayload === 'function') {
-    activeCall.wsConnection.sendMediaPayload(payload, options);
-    return;
   }
   activeCall.wsConnection.sendUTF(
     JSON.stringify({
@@ -153,9 +146,9 @@ function sendMulawAudio(activeCall, payload, options = {}) {
 }
 
 /**
- * @param {{ streamSid: string, wsConnection: { sendUTF: (message: string) => void, sendMediaPayload?: (payload: Buffer, options?: { source?: string }) => void, beginDtmf?: () => void, endDtmf?: () => void } }} activeCall
+ * @param {{ streamSid: string, wsConnection: { sendUTF: (message: string) => void } }} activeCall
  * @param {string} digits
- * @param {{ chunkMs?: number, toneMs?: number, trailingSilenceMs?: number, shortPauseMs?: number, longPauseMs?: number }} [options]
+ * @param {{ chunkMs?: number, toneMs?: number, trailingSilenceMs?: number }} [options]
  */
 async function sendDtmfSequence(activeCall, digits, options = {}) {
   if (!activeCall || !activeCall.streamSid || !activeCall.wsConnection) {
@@ -164,30 +157,23 @@ async function sendDtmfSequence(activeCall, digits, options = {}) {
 
   const chunkMs = options.chunkMs ?? DEFAULT_CHUNK_MS;
   const chunkSize = Math.max(1, Math.round((SAMPLE_RATE_HZ * chunkMs) / 1000));
-  const shortPauseMs = options.shortPauseMs ?? DEFAULT_SHORT_PAUSE_MS;
-  const longPauseMs = options.longPauseMs ?? DEFAULT_LONG_PAUSE_MS;
 
-  if (typeof activeCall.wsConnection.beginDtmf === 'function') activeCall.wsConnection.beginDtmf();
-  try {
-    for (const digit of String(digits)) {
-      if (digit === 'w') {
-        await sleep(shortPauseMs);
-        continue;
-      }
-      if (digit === 'W') {
-        await sleep(longPauseMs);
-        continue;
-      }
-
-      const payload = createDtmfMulawTone(digit, options);
-      for (let offset = 0; offset < payload.length; offset += chunkSize) {
-        const chunk = payload.subarray(offset, offset + chunkSize);
-        sendMulawAudio(activeCall, chunk, { source: 'dtmf' });
-        await sleep(chunkMs);
-      }
+  for (const digit of String(digits)) {
+    if (digit === 'w') {
+      await sleep(500);
+      continue;
     }
-  } finally {
-    if (typeof activeCall.wsConnection.endDtmf === 'function') activeCall.wsConnection.endDtmf();
+    if (digit === 'W') {
+      await sleep(1000);
+      continue;
+    }
+
+    const payload = createDtmfMulawTone(digit, options);
+    for (let offset = 0; offset < payload.length; offset += chunkSize) {
+      const chunk = payload.subarray(offset, offset + chunkSize);
+      sendMulawAudio(activeCall, chunk);
+      await sleep(chunkMs);
+    }
   }
 }
 

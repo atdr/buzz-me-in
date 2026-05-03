@@ -23,7 +23,6 @@ const homekit = require('./homekit');
 const { createLogger } = require('./src/core/log');
 /** @import { connection, request as WebSocketRequest, Message } from 'websocket' */
 /** @import { WsEventParseResult, WsEventParseOkSupported, StartCallResult, MediaPayloadParseResult, StreamTokenVerificationResult, TokenVerificationError, WsEventParseError, MediaPayloadParseError } from './src/core/types' */
-/** @typedef {connection & { sendMediaPayload?: (payload: Buffer, options?: { source?: string }) => void, beginDtmf?: () => void, endDtmf?: () => void, dropHomekitOutbound?: boolean }} MediaWebSocketConnection */
 
 const HTTP_SERVER_PORT = config.port;
 const STREAM_PATH = '/media';
@@ -31,7 +30,6 @@ const STREAM_START_TIMEOUT_MS = 5000;
 const STATUS_BEARER_PREFIX = 'Bearer ';
 const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
 const SHUTDOWN_GRACE_MS = config.shutdownGraceMs;
-const MULAW_FRAME_BYTES = 160; // 20 ms of 8 kHz mu-law audio.
 let ringtoneReady = false;
 let shuttingDown = false;
 const activeWsConnections = new Set();
@@ -330,17 +328,13 @@ class MediaStream {
    * @param {connection} connection
    */
   constructor(connection) {
-    /** @type {MediaWebSocketConnection} */
     this.connection = connection;
     this.messageCount = 0;
     this.currentCallSid = null;
     this.started = false;
     this.closed = false;
     this.hasHomekitSession = false;
-    this.outboundQueue = [];
-    this.outboundTimer = null;
-    this.outboundNextSendAt = 0;
-    this.dropHomekitOutbound = false;
+    this.ringbackTimer = null;
     this.ringbackOffset = 0;
     this.ringbackPayload = createRingbackMulawCycle();
     this.startTimeout = setTimeout(() => {
@@ -357,7 +351,6 @@ class MediaStream {
     // Raw mulaw bytes from Twilio flow into this PassThrough only after
     // HomeKit opens a live view. Pre-live buffering creates catch-up latency.
     this.mulawStream = new PassThrough({ highWaterMark: 32768 });
-    this.attachOutboundMediaHelpers();
 
     connection.on('message', this.processMessage.bind(this));
     connection.on('close', this.close.bind(this));
@@ -473,7 +466,6 @@ class MediaStream {
         clearTimeout(this.startTimeout);
         this.currentCallSid = start.callSid;
         this.started = true;
-        this.attachOutboundMediaHelpers();
         activeMediaStreamsByCallSid.set(start.callSid, this);
         const reboundSessionCount = homekit.setMulawPassthrough(this.mulawStream);
         if (reboundSessionCount > 0) {
@@ -517,17 +509,6 @@ class MediaStream {
         break;
       }
 
-      case 'dtmf': {
-        const dtmf = parsed.data.dtmf || {};
-        mediaWsLogger.info('Media websocket DTMF event', {
-          callSid: this.currentCallSid || undefined,
-          event: 'dtmf',
-          digit: dtmf.digit,
-          track: dtmf.track,
-        });
-        break;
-      }
-
       case 'stop': {
         mediaWsLogger.info('Media websocket stop event', {
           callSid: this.currentCallSid || undefined,
@@ -546,19 +527,25 @@ class MediaStream {
   }
 
   startRingback() {
-    if (!this.currentCallSid) return;
-    this.enqueueLoopedAudio(this.ringbackPayload, 'ringback');
-    this.startOutboundPump();
+    if (this.ringbackTimer || !this.currentCallSid) return;
+    this.ringbackTimer = setInterval(() => {
+      if (this.closed || !this.currentCallSid) {
+        this.stopRingback('stream-ended');
+        return;
+      }
+      this.sendRingbackFrame();
+    }, 20);
+    if (typeof this.ringbackTimer.unref === 'function') this.ringbackTimer.unref();
   }
 
   stopRingback(reason) {
-    const removedFrames = this.dropQueuedOutboundFrames('ringback');
-    if (removedFrames === 0) return;
+    if (!this.ringbackTimer) return;
+    clearInterval(this.ringbackTimer);
+    this.ringbackTimer = null;
     mediaWsLogger.info('Ringback media stopped', {
       callSid: this.currentCallSid || undefined,
       event: 'ringback-stopped',
       reason,
-      removedFrames,
     });
   }
 
@@ -567,84 +554,19 @@ class MediaStream {
     this.stopRingback('homekit-session-started');
   }
 
-  attachOutboundMediaHelpers() {
-    const connection = /** @type {MediaWebSocketConnection} */ (this.connection);
-    connection.sendMediaPayload = (payload, options = {}) =>
-      this.enqueueOutboundAudio(payload, options.source || 'app');
-    connection.beginDtmf = () => {
-      this.dropHomekitOutbound = true;
-      this.dropQueuedOutboundFrames('homekit');
-    };
-    connection.endDtmf = () => {
-      this.dropHomekitOutbound = false;
-    };
-  }
+  sendRingbackFrame() {
+    if (!this.currentCallSid || !this.started || this.closed) return;
 
-  enqueueOutboundAudio(payload, source) {
-    for (let offset = 0; offset < payload.length; offset += MULAW_FRAME_BYTES) {
-      const frame = Buffer.alloc(MULAW_FRAME_BYTES, 0xff);
-      payload.copy(frame, 0, offset, Math.min(offset + MULAW_FRAME_BYTES, payload.length));
-      this.outboundQueue.push({ payload: frame, source });
+    const chunkSize = 160; // 20 ms of 8 kHz mu-law audio.
+    const chunk = Buffer.alloc(chunkSize);
+    for (let i = 0; i < chunkSize; i++) {
+      chunk[i] = this.ringbackPayload[this.ringbackOffset];
+      this.ringbackOffset = (this.ringbackOffset + 1) % this.ringbackPayload.length;
     }
-    this.startOutboundPump();
-  }
 
-  enqueueLoopedAudio(payload, source) {
-    for (let i = 0; i < 5; i++) {
-      const frame = Buffer.alloc(MULAW_FRAME_BYTES);
-      for (let j = 0; j < MULAW_FRAME_BYTES; j++) {
-        frame[j] = payload[this.ringbackOffset];
-        this.ringbackOffset = (this.ringbackOffset + 1) % payload.length;
-      }
-      this.outboundQueue.push({ payload: frame, source });
-    }
-  }
-
-  dropQueuedOutboundFrames(source) {
-    const before = this.outboundQueue.length;
-    this.outboundQueue = this.outboundQueue.filter((frame) => frame.source !== source);
-    return before - this.outboundQueue.length;
-  }
-
-  startOutboundPump() {
-    if (this.outboundTimer || this.closed) return;
-    this.outboundNextSendAt = Date.now();
-    this.outboundTimer = setTimeout(() => this.sendNextOutboundFrame(), 0);
-    if (typeof this.outboundTimer.unref === 'function') this.outboundTimer.unref();
-  }
-
-  stopOutboundPumpIfIdle() {
-    if (!this.outboundTimer || this.outboundQueue.length > 0) return;
-    clearTimeout(this.outboundTimer);
-    this.outboundTimer = null;
-  }
-
-  sendNextOutboundFrame() {
-    if (this.closed) {
-      if (this.outboundTimer) clearTimeout(this.outboundTimer);
-      this.outboundTimer = null;
-      return;
-    }
-    this.outboundTimer = null;
-    const frame = this.outboundQueue.shift();
-    if (!frame) {
-      this.stopOutboundPumpIfIdle();
-      return;
-    }
     const activeCall = state.getActiveCall();
-    if (!activeCall || activeCall.wsConnection !== this.connection || !activeCall.streamSid) {
-      this.outboundQueue.unshift(frame);
-      this.stopOutboundPumpIfIdle();
-      return;
-    }
-    sendMulawAudio(activeCall, frame.payload);
-    if (frame.source === 'ringback' && !this.hasHomekitSession && this.outboundQueue.length < 3) {
-      this.enqueueLoopedAudio(this.ringbackPayload, 'ringback');
-    }
-    this.outboundNextSendAt += 20;
-    const delayMs = Math.max(0, this.outboundNextSendAt - Date.now());
-    this.outboundTimer = setTimeout(() => this.sendNextOutboundFrame(), delayMs);
-    if (typeof this.outboundTimer.unref === 'function') this.outboundTimer.unref();
+    if (!activeCall || activeCall.wsConnection !== this.connection || !activeCall.streamSid) return;
+    sendMulawAudio(activeCall, chunk);
   }
 
   _teardown(reason) {
@@ -658,9 +580,6 @@ class MediaStream {
       messageCount: this.messageCount,
     });
     clearTimeout(this.startTimeout);
-    if (this.outboundTimer) clearTimeout(this.outboundTimer);
-    this.outboundTimer = null;
-    this.outboundQueue = [];
     // Guard: close() can fire without a prior 'stop' event (e.g. network drop).
     this.mulawStream.destroy();
     const { cleared } = state.clearIfConnection(this.connection, reason);
