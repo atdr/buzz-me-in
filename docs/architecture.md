@@ -27,13 +27,14 @@ This document focuses on stable architecture concepts as of the Priority 3e base
 ## Request and media flow
 
 1. Twilio sends webhook request to `POST /twiml`.
-2. `server.js` validates Twilio signature and returns TwiML with signed WS stream token.
+2. `server.js` validates Twilio signature and returns TwiML with signed bidirectional WS stream token.
 3. Twilio opens WebSocket stream on `/media?token=...`.
 4. Server validates/consumes one-time token and processes WS events (`connected/start/media/stop`).
 5. On `start`, server initializes call state and connects Twilio mulaw stream to HomeKit pipeline.
 6. HomeKit sessions use ffmpeg to:
    - ingest Twilio inbound mulaw and forward media to HomeKit SRTP
    - ingest HomeKit return audio and forward mulaw payloads back to Twilio WS
+   - send generated ringback and DTMF unlock tones back to Twilio over the same WS
 7. Call/session cleanup occurs on Twilio `stop`, WS close, stale timeout, or shutdown.
 
 ## Session model

@@ -13,6 +13,7 @@ const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('./src/core/ws-e
 
 const config = require('./src/core/config');
 const state = require('./src/core/state');
+const { createRingbackMulawCycle, sendMulawAudio } = require('./src/core/dtmf');
 const homekit = require('./homekit');
 const { createLogger } = require('./src/core/log');
 /** @import { connection, request as WebSocketRequest, Message } from 'websocket' */
@@ -33,12 +34,18 @@ const activeWsConnections = new Set();
 const logger = createLogger({ component: 'server' });
 const mediaWsLogger = logger.child({ component: 'media-ws' });
 const twimlLogger = logger.child({ component: 'twiml' });
+const activeMediaStreamsByCallSid = new Map();
+
+homekit.setOnHapSessionStarted((callSid) => {
+  const mediaStream = activeMediaStreamsByCallSid.get(callSid);
+  if (mediaStream) mediaStream.stopRingback('homekit-session-started');
+});
 
 // ---------------------------------------------------------------------------
 // Ringtone — generated once at startup by ffmpeg.
 // UK-style ring: 400Hz+450Hz dual tone, 0.4 s on / 2.6 s off in a 3 s loop.
-// Served at GET /ringtone.wav; referenced by <Play loop="0"> in TwiML so
-// Twilio loops it to the caller until HomeKit answers (answerCall REST update).
+// Served at GET /ringtone for debug/manual checks. Runtime ringback is sent over
+// the bidirectional media stream so Twilio keeps the same WebSocket connected.
 // ---------------------------------------------------------------------------
 const RINGTONE_PATH = '/tmp/intercom_ringtone.wav';
 
@@ -188,12 +195,11 @@ function handleRequest(request, response) {
 function buildTwiml(streamToken) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Start>
+  <Connect>
     <Stream url="wss://${config.tunnelHostname}${STREAM_PATH}">
       <Parameter name="${STREAM_TOKEN_PARAMETER_NAME}" value="${escapeXmlAttribute(streamToken)}"/>
     </Stream>
-  </Start>
-  <Play loop="0">https://${config.tunnelHostname}/ringtone</Play>
+  </Connect>
 </Response>`;
 }
 
@@ -331,6 +337,9 @@ class MediaStream {
     this.currentCallSid = null;
     this.started = false;
     this.closed = false;
+    this.ringbackTimer = null;
+    this.ringbackOffset = 0;
+    this.ringbackPayload = createRingbackMulawCycle();
     this.startTimeout = setTimeout(() => {
       if (!this.started) {
         mediaWsLogger.warn('Media websocket start timed out', {
@@ -463,8 +472,10 @@ class MediaStream {
         clearTimeout(this.startTimeout);
         this.currentCallSid = start.callSid;
         this.started = true;
+        activeMediaStreamsByCallSid.set(start.callSid, this);
         homekit.setMulawPassthrough(this.mulawStream);
         homekit.triggerDoorbell();
+        this.startRingback();
         break;
       }
 
@@ -515,9 +526,48 @@ class MediaStream {
     this._teardown('ws-close');
   }
 
+  startRingback() {
+    if (this.ringbackTimer || !this.currentCallSid) return;
+    this.ringbackTimer = setInterval(() => {
+      if (this.closed || !this.currentCallSid) {
+        this.stopRingback('stream-ended');
+        return;
+      }
+      this.sendRingbackFrame();
+    }, 20);
+    if (typeof this.ringbackTimer.unref === 'function') this.ringbackTimer.unref();
+  }
+
+  stopRingback(reason) {
+    if (!this.ringbackTimer) return;
+    clearInterval(this.ringbackTimer);
+    this.ringbackTimer = null;
+    mediaWsLogger.info('Ringback media stopped', {
+      callSid: this.currentCallSid || undefined,
+      event: 'ringback-stopped',
+      reason,
+    });
+  }
+
+  sendRingbackFrame() {
+    if (!this.currentCallSid || !this.started || this.closed) return;
+
+    const chunkSize = 160; // 20 ms of 8 kHz mu-law audio.
+    const chunk = Buffer.alloc(chunkSize);
+    for (let i = 0; i < chunkSize; i++) {
+      chunk[i] = this.ringbackPayload[this.ringbackOffset];
+      this.ringbackOffset = (this.ringbackOffset + 1) % this.ringbackPayload.length;
+    }
+
+    const activeCall = state.getActiveCall();
+    if (!activeCall || activeCall.wsConnection !== this.connection || !activeCall.streamSid) return;
+    sendMulawAudio(activeCall, chunk);
+  }
+
   _teardown(reason) {
     if (this.closed) return;
     this.closed = true;
+    this.stopRingback(reason);
     mediaWsLogger.info('Media websocket session ended', {
       callSid: this.currentCallSid || undefined,
       event: 'session-ended',
@@ -528,6 +578,7 @@ class MediaStream {
     // Guard: close() can fire without a prior 'stop' event (e.g. network drop).
     this.mulawStream.destroy();
     const { cleared } = state.clearIfConnection(this.connection, reason);
+    if (this.currentCallSid) activeMediaStreamsByCallSid.delete(this.currentCallSid);
     if (cleared) {
       homekit.endHapSession();
     }

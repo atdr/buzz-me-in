@@ -42,6 +42,19 @@ describe('ws event schema parsing', () => {
     assert.equal(result.event, 'mark');
   });
 
+  test('accepts bidirectional stream start payload without custom parameters', () => {
+    const result = parseTwilioWsEvent({
+      event: 'start',
+      start: {
+        callSid: 'CA123',
+        streamSid: 'MZ123',
+      },
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.data.start.callSid, 'CA123');
+    assert.equal(result.data.start.customParameters, undefined);
+  });
+
   test('rejects malformed start event shape', () => {
     const result = parseTwilioWsEvent({
       event: 'start',

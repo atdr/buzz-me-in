@@ -12,6 +12,13 @@ const startEventSchema = z.object({
   start: z.object({
     callSid: z.string().min(1),
     streamSid: z.string().min(1),
+    mediaFormat: z
+      .object({
+        encoding: z.string().optional(),
+        sampleRate: z.number().optional(),
+        channels: z.number().optional(),
+      })
+      .optional(),
     customParameters: z.record(z.string(), z.string()).optional(),
   }),
 });
