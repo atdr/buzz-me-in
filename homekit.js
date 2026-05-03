@@ -78,7 +78,8 @@ function getAvailablePort() {
 }
 
 function randomSSRC() {
-  return crypto.randomBytes(4).readUInt32BE(0);
+  // ffmpeg's RTP muxer parses -ssrc as a signed 32-bit integer option.
+  return crypto.randomBytes(4).readUInt32BE(0) & 0x7fffffff;
 }
 
 /**
