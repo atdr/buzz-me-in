@@ -160,8 +160,6 @@ function getActiveCall() {
 
 async function prepareStreamSession(request) {
   const returnAudioPort = await getAvailablePort();
-  const returnAudioKey = crypto.randomBytes(16);
-  const returnAudioSalt = crypto.randomBytes(14);
   const videoSsrc = randomSSRC();
   const audioSsrc = randomSSRC();
 
@@ -178,8 +176,8 @@ async function prepareStreamSession(request) {
     hkAudioKey: request.audio.srtp_key,
     hkAudioSalt: request.audio.srtp_salt,
     returnAudioPort,
-    returnAudioKey,
-    returnAudioSalt,
+    returnAudioKey: request.audio.srtp_key,
+    returnAudioSalt: request.audio.srtp_salt,
     videoSsrc,
     audioSsrc,
   });
@@ -195,8 +193,8 @@ async function prepareStreamSession(request) {
     audio: {
       port: returnAudioPort,
       ssrc: audioSsrc,
-      srtp_key: returnAudioKey,
-      srtp_salt: returnAudioSalt,
+      srtp_key: request.audio.srtp_key,
+      srtp_salt: request.audio.srtp_salt,
     },
   };
 }
