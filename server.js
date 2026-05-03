@@ -22,6 +22,7 @@ const HTTP_SERVER_PORT = config.port;
 const STREAM_PATH = '/media';
 const STREAM_TOKEN_PARAMETER_NAME = 'token';
 const STREAM_TOKEN_VERSION = 1;
+const STREAM_START_TIMEOUT_MS = 5000;
 const STATUS_BEARER_PREFIX = 'Bearer ';
 const pendingStreamNonces = new Map();
 const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
@@ -330,6 +331,16 @@ class MediaStream {
     this.currentCallSid = null;
     this.started = false;
     this.closed = false;
+    this.startTimeout = setTimeout(() => {
+      if (!this.started) {
+        mediaWsLogger.warn('Media websocket start timed out', {
+          event: 'start',
+          reason: 'start-timeout',
+        });
+        this.connection.close();
+      }
+    }, STREAM_START_TIMEOUT_MS);
+    this.startTimeout.unref();
 
     // Raw mulaw bytes from Twilio flow into this PassThrough.
     // homekit.js pipes it into the inbound ffmpeg when a HAP session opens.
@@ -449,6 +460,7 @@ class MediaStream {
           event: 'start',
           streamSid: start.streamSid,
         });
+        clearTimeout(this.startTimeout);
         this.currentCallSid = start.callSid;
         this.started = true;
         homekit.setMulawPassthrough(this.mulawStream);
@@ -512,6 +524,7 @@ class MediaStream {
       reason,
       messageCount: this.messageCount,
     });
+    clearTimeout(this.startTimeout);
     // Guard: close() can fire without a prior 'stop' event (e.g. network drop).
     this.mulawStream.destroy();
     const { cleared } = state.clearIfConnection(this.connection, reason);

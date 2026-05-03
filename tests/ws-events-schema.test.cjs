@@ -12,11 +12,16 @@ describe('ws event schema parsing', () => {
 
     const start = parseTwilioWsEvent({
       event: 'start',
-      start: { callSid: 'CA123', streamSid: 'MZ123' },
+      start: {
+        callSid: 'CA123',
+        streamSid: 'MZ123',
+        customParameters: { token: 'stream-token' },
+      },
     });
     assert.equal(start.ok, true);
     assert.equal(start.data.start.callSid, 'CA123');
     assert.equal(start.data.start.streamSid, 'MZ123');
+    assert.equal(start.data.start.customParameters.token, 'stream-token');
 
     const media = parseTwilioWsEvent({
       event: 'media',
