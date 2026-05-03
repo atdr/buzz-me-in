@@ -34,7 +34,7 @@ This document focuses on stable architecture concepts as of the Priority 3e base
 6. HomeKit sessions use ffmpeg to:
    - ingest Twilio inbound mulaw and forward media to HomeKit SRTP
    - ingest HomeKit return audio and forward mulaw payloads back to Twilio WS
-   - send generated ringback back to Twilio over the same WS before live view starts
+   - send generated ringback and unlock DTMF back to Twilio over the same WS
 7. Call/session cleanup occurs on Twilio `stop`, WS close, stale timeout, or shutdown.
 
 ## Session model

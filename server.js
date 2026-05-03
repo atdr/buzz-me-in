@@ -26,7 +26,6 @@ const { createLogger } = require('./src/core/log');
 
 const HTTP_SERVER_PORT = config.port;
 const STREAM_PATH = '/media';
-const STREAM_REPLACED_GRACE_MS = 10000;
 const STREAM_START_TIMEOUT_MS = 5000;
 const STATUS_BEARER_PREFIX = 'Bearer ';
 const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
@@ -38,16 +37,10 @@ const logger = createLogger({ component: 'server' });
 const mediaWsLogger = logger.child({ component: 'media-ws' });
 const twimlLogger = logger.child({ component: 'twiml' });
 const activeMediaStreamsByCallSid = new Map();
-const expectedReplacementStreamsByCallSid = new Map();
 
 homekit.setOnHapSessionStarted((callSid) => {
   const mediaStream = activeMediaStreamsByCallSid.get(callSid);
   if (mediaStream) mediaStream.markHomekitSessionStarted();
-});
-
-homekit.setOnUnlockRequested((callSid) => {
-  const mediaStream = activeMediaStreamsByCallSid.get(callSid);
-  if (mediaStream) mediaStream.expectReplacement('unlock-dtmf');
 });
 
 // ---------------------------------------------------------------------------
@@ -341,8 +334,6 @@ class MediaStream {
     this.started = false;
     this.closed = false;
     this.hasHomekitSession = false;
-    this.replaceExpected = false;
-    this.replaceTimer = null;
     this.ringbackTimer = null;
     this.ringbackOffset = 0;
     this.ringbackPayload = createRingbackMulawCycle();
@@ -453,28 +444,11 @@ class MediaStream {
           this.connection.close();
           return;
         }
-        const previousMediaStream = activeMediaStreamsByCallSid.get(start.callSid);
-        const expectedReplacementStream = expectedReplacementStreamsByCallSid.get(start.callSid);
-        const replacedMediaStream = previousMediaStream || expectedReplacementStream;
-        const isReplacement = replacedMediaStream && replacedMediaStream !== this;
-        const activeCall = state.getActiveCall();
-        const started = isReplacement
-          ? activeCall && activeCall.callSid === start.callSid
-            ? state.replaceCallConnection({
-                callSid: start.callSid,
-                streamSid: start.streamSid,
-                wsConnection: this.connection,
-              })
-            : state.startCall({
-                callSid: start.callSid,
-                streamSid: start.streamSid,
-                wsConnection: this.connection,
-              })
-          : state.startCall({
-              callSid: start.callSid,
-              streamSid: start.streamSid,
-              wsConnection: this.connection,
-            });
+        const started = state.startCall({
+          callSid: start.callSid,
+          streamSid: start.streamSid,
+          wsConnection: this.connection,
+        });
         if (started.ok === false) {
           mediaWsLogger.warn('Media websocket start rejected', {
             callSid: start.callSid,
@@ -492,10 +466,6 @@ class MediaStream {
         clearTimeout(this.startTimeout);
         this.currentCallSid = start.callSid;
         this.started = true;
-        if (isReplacement) {
-          clearExpectedReplacement(start.callSid);
-          replacedMediaStream.markReplacedBy(this, 'replacement-media-started');
-        }
         activeMediaStreamsByCallSid.set(start.callSid, this);
         const reboundSessionCount = homekit.setMulawPassthrough(this.mulawStream);
         if (reboundSessionCount > 0) {
@@ -584,33 +554,6 @@ class MediaStream {
     this.stopRingback('homekit-session-started');
   }
 
-  expectReplacement(reason) {
-    if (this.closed) return;
-    this.replaceExpected = true;
-    clearExpectedReplacement(this.currentCallSid);
-    const expectedCallSid = this.currentCallSid;
-    this.replaceTimer = setTimeout(() => {
-      this.replaceExpected = false;
-      this.replaceTimer = null;
-      if (expectedCallSid) expectedReplacementStreamsByCallSid.delete(expectedCallSid);
-      const activeCall = state.getActiveCall();
-      if (activeCall && activeCall.callSid === expectedCallSid) return;
-      mediaWsLogger.warn('Expected media websocket replacement did not arrive', {
-        callSid: expectedCallSid || undefined,
-        event: 'media-ws-replacement-timeout',
-        reason: 'replacement-timeout',
-      });
-      homekit.endHapSession();
-    }, STREAM_REPLACED_GRACE_MS);
-    if (typeof this.replaceTimer.unref === 'function') this.replaceTimer.unref();
-    if (this.currentCallSid) expectedReplacementStreamsByCallSid.set(this.currentCallSid, this);
-    mediaWsLogger.info('Media websocket replacement expected', {
-      callSid: this.currentCallSid || undefined,
-      event: 'media-ws-replacement-expected',
-      reason,
-    });
-  }
-
   sendRingbackFrame() {
     if (!this.currentCallSid || !this.started || this.closed) return;
 
@@ -643,30 +586,10 @@ class MediaStream {
     if (this.currentCallSid && activeMediaStreamsByCallSid.get(this.currentCallSid) === this) {
       activeMediaStreamsByCallSid.delete(this.currentCallSid);
     }
-    if (cleared && this.replaceExpected && this.currentCallSid) {
-      mediaWsLogger.info(
-        'Preserving HomeKit session while media websocket replacement is pending',
-        {
-          callSid: this.currentCallSid,
-          event: 'media-ws-replacement-pending',
-        }
-      );
-    } else if (cleared) {
+    if (cleared) {
       homekit.endHapSession();
     }
   }
-}
-
-function clearExpectedReplacement(callSid) {
-  if (!callSid) return;
-  const mediaStream = expectedReplacementStreamsByCallSid.get(callSid);
-  if (!mediaStream) return;
-  if (mediaStream.replaceTimer) {
-    clearTimeout(mediaStream.replaceTimer);
-    mediaStream.replaceTimer = null;
-  }
-  mediaStream.replaceExpected = false;
-  expectedReplacementStreamsByCallSid.delete(callSid);
 }
 
 /**

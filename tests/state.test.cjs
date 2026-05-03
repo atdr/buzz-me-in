@@ -124,31 +124,6 @@ describe('state session manager', () => {
     restore();
   });
 
-  test('replaces connection for the same active call', () => {
-    const { state, restore } = loadState();
-    const ws1 = { id: 'conn1' };
-    const ws2 = { id: 'conn2' };
-    state.startCall({
-      callSid: 'CA111',
-      streamSid: 'MZ111',
-      wsConnection: ws1,
-    });
-
-    const replaced = state.replaceCallConnection({
-      callSid: 'CA111',
-      streamSid: 'MZ222',
-      wsConnection: ws2,
-    });
-
-    assert.equal(replaced.ok, true);
-    assert.equal(state.getActiveCall().streamSid, 'MZ222');
-    assert.equal(state.getActiveCall().wsConnection, ws2);
-    assert.equal(state.getActiveCall().lastEvent, 'stream-replaced');
-    assert.equal(state.clearIfConnection(ws1, 'old-ws-close').cleared, false);
-    assert.deepEqual(state.getStatus(), { active: true, callSid: 'CA111' });
-    restore();
-  });
-
   test('stale timeout reaps session and invokes callback', () => {
     const { state, restore } = loadState({ CALL_SESSION_STALE_SEC: '1' });
     let staleSession = null;

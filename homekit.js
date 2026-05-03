@@ -26,9 +26,9 @@ const { spawn } = require('child_process');
 
 const config = require('./src/core/config');
 const state = require('./src/core/state');
-const { sendMulawAudio } = require('./src/core/mulaw-audio');
+const { sendDtmfSequence, sendMulawAudio } = require('./src/core/mulaw-audio');
 const { createLogger } = require('./src/core/log');
-const { hangUpCall, unlockDoor, getUnlockDigits } = require('./twilio-api');
+const { hangUpCall } = require('./twilio-api');
 
 const {
   Accessory,
@@ -153,7 +153,6 @@ const activeSessions = new Map();
 // PassThrough stream set by server.js each time a Twilio call connects.
 let currentMulawStream = null;
 let onHapSessionStarted = null;
-let onUnlockRequested = null;
 
 function getActiveCall() {
   return state.getActiveCall();
@@ -573,19 +572,17 @@ lockService
     const activeCall = getActiveCall();
     if (value === Characteristic.LockTargetState.UNSECURED && activeCall) {
       try {
-        if (onUnlockRequested) onUnlockRequested(activeCall.callSid);
-        const result = await unlockDoor(activeCall.callSid);
-        logger.info('Requested Twilio DTMF unlock', {
+        await sendDtmfSequence(activeCall, config.twilioUnlockDigits);
+        state.markActivity(activeCall.callSid, 'unlock-dtmf');
+        logger.info('Sent DTMF unlock over active media stream', {
           event: 'unlock-requested',
           callSid: activeCall.callSid,
-          digits: getUnlockDigits(),
-          twilioCallStatus: result && result.status,
-          twilioCallSid: result && result.sid,
+          digits: config.twilioUnlockDigits,
         });
       } catch (error) {
         logger.error('Unlock door request failed', {
           event: 'unlock-failed',
-          reason: 'twilio-unlock-failed',
+          reason: 'dtmf-send-failed',
           callSid: activeCall.callSid,
           error,
         });
@@ -717,14 +714,9 @@ function setOnHapSessionStarted(handler) {
   onHapSessionStarted = typeof handler === 'function' ? handler : null;
 }
 
-function setOnUnlockRequested(handler) {
-  onUnlockRequested = typeof handler === 'function' ? handler : null;
-}
-
 module.exports = {
   triggerDoorbell,
   setMulawPassthrough,
   endHapSession,
   setOnHapSessionStarted,
-  setOnUnlockRequested,
 };
