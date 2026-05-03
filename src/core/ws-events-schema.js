@@ -12,6 +12,7 @@ const startEventSchema = z.object({
   start: z.object({
     callSid: z.string().min(1),
     streamSid: z.string().min(1),
+    customParameters: z.record(z.string(), z.string()).optional(),
   }),
 });
 
