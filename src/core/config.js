@@ -77,6 +77,11 @@ if (statusApiToken.length < 16) {
   fail('STATUS_API_TOKEN must be at least 16 characters');
 }
 
+const twilioUnlockDigits = optional('TWILIO_UNLOCK_DIGITS') || 'w9w';
+if (!/^[0-9A-Da-d*#wW]+$/.test(twilioUnlockDigits)) {
+  fail('TWILIO_UNLOCK_DIGITS may only contain DTMF digits 0-9, A-D, *, #, w, and W');
+}
+
 const twilioWebhookBaseUrl = sanitizeBaseUrl(
   optional('TWILIO_WEBHOOK_BASE_URL') || `https://${tunnelHostname}`
 );
@@ -92,6 +97,7 @@ module.exports = {
     'AC followed by 32 alphanumeric chars'
   ),
   twilioAuthToken: required('TWILIO_AUTH_TOKEN'),
+  twilioUnlockDigits,
   twilioPhoneNumber: validateRegex(
     'TWILIO_PHONE_NUMBER',
     required('TWILIO_PHONE_NUMBER'),

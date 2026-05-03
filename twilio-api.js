@@ -14,7 +14,9 @@
 const twilio = require('twilio');
 const config = require('./src/core/config');
 const { buildConnectStreamTwiml: buildStreamTwiml } = require('./src/core/stream-auth');
+const { createLogger } = require('./src/core/log');
 
+const logger = createLogger({ component: 'twilio-api' });
 let _client = null;
 function client() {
   if (!_client) {
@@ -24,17 +26,25 @@ function client() {
 }
 
 /**
- * Send DTMF digit "9" mid-call to open the intercom door.
- * The TwiML includes a follow-up <Pause> so the call stays alive
- * and the media stream continues after the tone is sent.
+ * Send DTMF mid-call to open the intercom door.
+ * The TwiML returns to <Connect><Stream> after the digit sequence so two-way audio resumes.
  */
 async function unlockDoor(callSid) {
-  console.log(`[Twilio] Sending DTMF unlock to ${callSid}`);
-  return client()
-    .calls(callSid)
-    .update({
-      twiml: `<Response><Play digits="9"/>${buildConnectStreamTwiml(callSid)}</Response>`,
-    });
+  const twiml = `<Response><Play digits="${escapeXmlAttribute(config.twilioUnlockDigits)}"/>${buildConnectStreamTwiml(callSid)}</Response>`;
+  logger.info('Sending Twilio DTMF unlock', {
+    event: 'unlock-dtmf-update',
+    callSid,
+    digits: config.twilioUnlockDigits,
+  });
+  const call = await client().calls(callSid).update({
+    twiml,
+  });
+  logger.info('Twilio DTMF unlock update accepted', {
+    event: 'unlock-dtmf-update-accepted',
+    callSid,
+    status: call && call.status,
+  });
+  return call;
 }
 
 /**
@@ -65,4 +75,21 @@ function buildConnectStreamTwiml(callSid) {
   return buildStreamTwiml(callSid, config.tunnelHostname);
 }
 
-module.exports = { hangUpCall, unlockDoor };
+function getUnlockDigits() {
+  return config.twilioUnlockDigits;
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeXmlAttribute(value) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+module.exports = { getUnlockDigits, hangUpCall, unlockDoor };

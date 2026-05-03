@@ -28,7 +28,7 @@ const config = require('./src/core/config');
 const state = require('./src/core/state');
 const { sendMulawAudio } = require('./src/core/mulaw-audio');
 const { createLogger } = require('./src/core/log');
-const { hangUpCall, unlockDoor } = require('./twilio-api');
+const { hangUpCall, unlockDoor, getUnlockDigits } = require('./twilio-api');
 
 const {
   Accessory,
@@ -574,10 +574,13 @@ lockService
     if (value === Characteristic.LockTargetState.UNSECURED && activeCall) {
       try {
         if (onUnlockRequested) onUnlockRequested(activeCall.callSid);
-        await unlockDoor(activeCall.callSid);
+        const result = await unlockDoor(activeCall.callSid);
         logger.info('Requested Twilio DTMF unlock', {
           event: 'unlock-requested',
           callSid: activeCall.callSid,
+          digits: getUnlockDigits(),
+          twilioCallStatus: result && result.status,
+          twilioCallSid: result && result.sid,
         });
       } catch (error) {
         logger.error('Unlock door request failed', {
