@@ -260,10 +260,8 @@ function _startSession(sessionID, s, request, callback) {
   // Inbound ffmpeg
   //
   // Input 0  – raw mulaw/8kHz from Twilio via stdin
-  //   -use_wallclock_as_timestamps 1
-  //     Timestamps from wall clock, not accumulated byte count.
-  //     Without this, any jitter in Twilio packet delivery causes pts drift
-  //     that eventually makes ffmpeg drop or duplicate audio frames.
+  //   Let the raw audio demuxer derive PTS from sample count. Using wall-clock
+  //   timestamps breaks when ffmpeg drains the buffered startup audio burst.
   //
   // Input 1  – synthetic black video (lavfi color source)
   //   Generates H.264 Baseline/3.1 frames at 15 fps.
@@ -280,8 +278,8 @@ function _startSession(sessionID, s, request, callback) {
     'warning',
 
     // ---- Input 0: raw mulaw from Twilio ----
-    '-use_wallclock_as_timestamps',
-    '1',
+    '-thread_queue_size',
+    '512',
     '-f',
     'mulaw',
     '-ar',
