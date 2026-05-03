@@ -20,7 +20,9 @@ const { createLogger } = require('./src/core/log');
 
 const HTTP_SERVER_PORT = config.port;
 const STREAM_PATH = '/media';
+const STREAM_TOKEN_PARAMETER_NAME = 'token';
 const STREAM_TOKEN_VERSION = 1;
+const STREAM_START_TIMEOUT_MS = 5000;
 const STATUS_BEARER_PREFIX = 'Bearer ';
 const pendingStreamNonces = new Map();
 const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
@@ -187,7 +189,9 @@ function buildTwiml(streamToken) {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Start>
-    <Stream url="wss://${config.tunnelHostname}${STREAM_PATH}?token=${encodeURIComponent(streamToken)}"/>
+    <Stream url="wss://${config.tunnelHostname}${STREAM_PATH}">
+      <Parameter name="${STREAM_TOKEN_PARAMETER_NAME}" value="${escapeXmlAttribute(streamToken)}"/>
+    </Stream>
   </Start>
   <Play loop="0">https://${config.tunnelHostname}/ringtone</Play>
 </Response>`;
@@ -308,43 +312,35 @@ mediaws.on('request', function (request) {
     return;
   }
 
-  const query =
-    wsRequest.resourceURL && wsRequest.resourceURL.query ? wsRequest.resourceURL.query : {};
-  const token = typeof query.token === 'string' ? query.token : '';
-  /** @type {StreamTokenVerificationResult} */
-  const verification = verifyAndConsumeStreamToken(token);
-  if (!verification.ok) {
-    const verificationError = /** @type {TokenVerificationError} */ (verification);
-    mediaWsLogger.warn('Media websocket rejected', {
-      event: 'media-ws-rejected',
-      reason: verificationError.reason,
-    });
-    wsRequest.reject(403, 'Unauthorized');
-    return;
-  }
-
   const connection = wsRequest.accept(null, wsRequest.origin);
   activeWsConnections.add(connection);
   connection.on('close', () => activeWsConnections.delete(connection));
   mediaWsLogger.info('Media websocket connection accepted', {
     event: 'media-ws-accepted',
-    callSid: verification.callSid || undefined,
   });
-  new MediaStream(connection, verification.callSid);
+  new MediaStream(connection);
 });
 
 class MediaStream {
   /**
    * @param {connection} connection
-   * @param {string | null} expectedCallSid
    */
-  constructor(connection, expectedCallSid) {
+  constructor(connection) {
     this.connection = connection;
     this.messageCount = 0;
-    this.expectedCallSid = expectedCallSid;
     this.currentCallSid = null;
     this.started = false;
     this.closed = false;
+    this.startTimeout = setTimeout(() => {
+      if (!this.started) {
+        mediaWsLogger.warn('Media websocket start timed out', {
+          event: 'start',
+          reason: 'start-timeout',
+        });
+        this.connection.close();
+      }
+    }, STREAM_START_TIMEOUT_MS);
+    this.startTimeout.unref();
 
     // Raw mulaw bytes from Twilio flow into this PassThrough.
     // homekit.js pipes it into the inbound ffmpeg when a HAP session opens.
@@ -420,7 +416,22 @@ class MediaStream {
           return;
         }
         const start = parsed.data.start;
-        if (this.expectedCallSid && this.expectedCallSid !== start.callSid) {
+        const token = start.customParameters
+          ? start.customParameters[STREAM_TOKEN_PARAMETER_NAME]
+          : undefined;
+        /** @type {StreamTokenVerificationResult} */
+        const verification = verifyAndConsumeStreamToken(typeof token === 'string' ? token : '');
+        if (!verification.ok) {
+          const verificationError = /** @type {TokenVerificationError} */ (verification);
+          mediaWsLogger.warn('Media websocket start rejected', {
+            callSid: start.callSid,
+            event: 'start',
+            reason: verificationError.reason,
+          });
+          this.connection.close();
+          return;
+        }
+        if (verification.callSid && verification.callSid !== start.callSid) {
           mediaWsLogger.warn('Media websocket start rejected', {
             callSid: start.callSid,
             event: 'start',
@@ -449,6 +460,7 @@ class MediaStream {
           event: 'start',
           streamSid: start.streamSid,
         });
+        clearTimeout(this.startTimeout);
         this.currentCallSid = start.callSid;
         this.started = true;
         homekit.setMulawPassthrough(this.mulawStream);
@@ -512,6 +524,7 @@ class MediaStream {
       reason,
       messageCount: this.messageCount,
     });
+    clearTimeout(this.startTimeout);
     // Guard: close() can fire without a prior 'stop' event (e.g. network drop).
     this.mulawStream.destroy();
     const { cleared } = state.clearIfConnection(this.connection, reason);
@@ -596,6 +609,19 @@ function safeEqualString(a, b) {
   const paddedLeft = Buffer.concat([left, Buffer.alloc(len - left.length)]);
   const paddedRight = Buffer.concat([right, Buffer.alloc(len - right.length)]);
   return crypto.timingSafeEqual(paddedLeft, paddedRight);
+}
+
+/**
+ * @param {string} value
+ * @returns {string}
+ */
+function escapeXmlAttribute(value) {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function pruneExpiredNonces() {

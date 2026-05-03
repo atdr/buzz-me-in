@@ -16,7 +16,7 @@
 /**
  * @typedef {{
  *   event: 'start',
- *   start: { callSid: string, streamSid: string }
+ *   start: { callSid: string, streamSid: string, customParameters?: Record<string, string> }
  * }} StartEvent
  */
 
