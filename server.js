@@ -32,6 +32,9 @@ const STATUS_BEARER_PREFIX = 'Bearer ';
 const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
 const SHUTDOWN_GRACE_MS = config.shutdownGraceMs;
 const MULAW_FRAME_BYTES = 160; // 20 ms of 8 kHz mu-law audio.
+const OUTBOUND_FRAME_INTERVAL_MS = 20;
+const MAX_OUTBOUND_MEDIA_QUEUE_FRAMES = 250; // 5 seconds at 20 ms/frame.
+const OUTBOUND_RINGBACK_BUFFER_FRAMES = 5;
 let ringtoneReady = false;
 let shuttingDown = false;
 const activeWsConnections = new Set();
@@ -582,6 +585,9 @@ class MediaStream {
 
   enqueueOutboundAudio(payload, source) {
     for (let offset = 0; offset < payload.length; offset += MULAW_FRAME_BYTES) {
+      if (this.outboundQueue.length >= MAX_OUTBOUND_MEDIA_QUEUE_FRAMES) {
+        this.outboundQueue.shift();
+      }
       const frame = Buffer.alloc(MULAW_FRAME_BYTES, 0xff);
       payload.copy(frame, 0, offset, Math.min(offset + MULAW_FRAME_BYTES, payload.length));
       this.outboundQueue.push({ payload: frame, source });
@@ -590,12 +596,15 @@ class MediaStream {
   }
 
   enqueueLoopedAudio(payload, source) {
-    for (let i = 0; i < 5; i++) {
+    const queuedSourceFrames = this.countQueuedOutboundFrames(source);
+    const framesToAdd = Math.max(0, OUTBOUND_RINGBACK_BUFFER_FRAMES - queuedSourceFrames);
+    for (let i = 0; i < framesToAdd; i++) {
       const frame = Buffer.alloc(MULAW_FRAME_BYTES);
       for (let j = 0; j < MULAW_FRAME_BYTES; j++) {
         frame[j] = payload[this.ringbackOffset];
         this.ringbackOffset = (this.ringbackOffset + 1) % payload.length;
       }
+      if (this.outboundQueue.length >= MAX_OUTBOUND_MEDIA_QUEUE_FRAMES) break;
       this.outboundQueue.push({ payload: frame, source });
     }
   }
@@ -604,6 +613,13 @@ class MediaStream {
     const before = this.outboundQueue.length;
     this.outboundQueue = this.outboundQueue.filter((frame) => frame.source !== source);
     return before - this.outboundQueue.length;
+  }
+
+  countQueuedOutboundFrames(source) {
+    return this.outboundQueue.reduce(
+      (count, frame) => count + (frame.source === source ? 1 : 0),
+      0
+    );
   }
 
   startOutboundPump() {
@@ -641,8 +657,12 @@ class MediaStream {
     if (frame.source === 'ringback' && !this.hasHomekitSession && this.outboundQueue.length < 3) {
       this.enqueueLoopedAudio(this.ringbackPayload, 'ringback');
     }
-    this.outboundNextSendAt += 20;
-    const delayMs = Math.max(0, this.outboundNextSendAt - Date.now());
+    const now = Date.now();
+    this.outboundNextSendAt = Math.max(
+      this.outboundNextSendAt + OUTBOUND_FRAME_INTERVAL_MS,
+      now + OUTBOUND_FRAME_INTERVAL_MS
+    );
+    const delayMs = Math.max(1, this.outboundNextSendAt - now);
     this.outboundTimer = setTimeout(() => this.sendNextOutboundFrame(), delayMs);
     if (typeof this.outboundTimer.unref === 'function') this.outboundTimer.unref();
   }
