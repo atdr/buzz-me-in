@@ -26,9 +26,9 @@ const { spawn } = require('child_process');
 
 const config = require('./src/core/config');
 const state = require('./src/core/state');
-const { sendDtmfTone, sendMulawAudio } = require('./src/core/dtmf');
+const { sendMulawAudio } = require('./src/core/mulaw-audio');
 const { createLogger } = require('./src/core/log');
-const { hangUpCall } = require('./twilio-api');
+const { hangUpCall, unlockDoor } = require('./twilio-api');
 
 const {
   Accessory,
@@ -558,16 +558,15 @@ lockService
     const activeCall = getActiveCall();
     if (value === Characteristic.LockTargetState.UNSECURED && activeCall) {
       try {
-        logger.info('Sending DTMF unlock tone', {
-          event: 'unlock-dtmf-send',
+        await unlockDoor(activeCall.callSid);
+        logger.info('Requested Twilio DTMF unlock', {
+          event: 'unlock-requested',
           callSid: activeCall.callSid,
         });
-        await sendDtmfTone(activeCall, '9');
-        state.markActivity(activeCall.callSid, 'unlock-dtmf');
       } catch (error) {
         logger.error('Unlock door request failed', {
           event: 'unlock-failed',
-          reason: 'dtmf-send-failed',
+          reason: 'twilio-unlock-failed',
           callSid: activeCall.callSid,
           error,
         });

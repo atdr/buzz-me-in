@@ -23,6 +23,18 @@ function client() {
 }
 
 /**
+ * Send DTMF digit "9" mid-call to open the intercom door.
+ * The TwiML includes a follow-up <Pause> so the call stays alive
+ * and the media stream continues after the tone is sent.
+ */
+async function unlockDoor(callSid) {
+  console.log(`[Twilio] Sending DTMF unlock to ${callSid}`);
+  return client().calls(callSid).update({
+    twiml: `<Response><Play digits="9"/><Pause length="300"/></Response>`,
+  });
+}
+
+/**
  * Terminate the call immediately.
  * Called when the HomeKit session is dismissed by the user.
  */
@@ -33,4 +45,4 @@ async function hangUpCall(callSid) {
   });
 }
 
-module.exports = { hangUpCall };
+module.exports = { hangUpCall, unlockDoor };

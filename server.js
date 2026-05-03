@@ -13,7 +13,7 @@ const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('./src/core/ws-e
 
 const config = require('./src/core/config');
 const state = require('./src/core/state');
-const { createRingbackMulawCycle, sendMulawAudio } = require('./src/core/dtmf');
+const { createRingbackMulawCycle, sendMulawAudio } = require('./src/core/mulaw-audio');
 const homekit = require('./homekit');
 const { createLogger } = require('./src/core/log');
 /** @import { connection, request as WebSocketRequest, Message } from 'websocket' */
