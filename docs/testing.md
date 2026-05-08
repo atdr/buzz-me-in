@@ -1,5 +1,3 @@
-'use strict';
-
 # Testing guide
 
 This project uses lightweight quality gates on plain JavaScript (CommonJS) with targeted unit tests.
