@@ -1,5 +1,3 @@
-'use strict';
-
 # Architecture
 
 This document focuses on stable architecture concepts as of the Priority 3e baseline. It intentionally avoids transient implementation details so it stays useful as internals evolve.
