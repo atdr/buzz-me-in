@@ -320,7 +320,7 @@ Open the live view, then dismiss it on the iPhone (tap the X / end button).
 **Pass (server log):**
 
 ```text
-{"ts":"...","level":"info","message":"Inbound ffmpeg exited","component":"homekit","event":"ffin-exit","reason":"clean-exit","exitCode":0,"sessionId":"..."}
+{"ts":"...","level":"info","message":"Inbound ffmpeg exited","component":"homekit","event":"ffin-exit","reason":"nonzero-exit","exitCode":null,"sessionId":"..."}
 {"ts":"...","level":"info","message":"Hanging up call","component":"twilio-api","event":"hangup","callSid":"CA..."}
 ```
 

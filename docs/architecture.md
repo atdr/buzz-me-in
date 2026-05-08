@@ -1,6 +1,6 @@
 # Architecture
 
-This document focuses on stable architecture concepts as of the Priority 3e baseline. It intentionally avoids transient implementation details so it stays useful as internals evolve.
+This document focuses on stable architecture concepts. It intentionally avoids transient implementation details so it stays useful as internals evolve.
 
 ## Runtime components
 
@@ -12,7 +12,7 @@ This document focuses on stable architecture concepts as of the Priority 3e base
   - HomeKit accessory lifecycle and two-way media bridge
   - ffmpeg process orchestration for inbound/outbound audio paths
 - `twilio-api.js`
-  - Twilio REST helpers for answer/unlock/hangup operations
+  - Twilio REST helper for hanging up a call
 - `src/core/state.js`
   - in-memory call session management and stale-session reaping
 - `src/core/stream-auth.js`
@@ -30,7 +30,7 @@ This document focuses on stable architecture concepts as of the Priority 3e base
 
 1. Twilio sends webhook request to `POST /twiml`.
 2. `server.js` validates Twilio signature and returns TwiML with signed bidirectional WS stream token.
-3. Twilio opens WebSocket stream on `/media?token=...`.
+3. Twilio opens WebSocket stream on `/media`. The signed token is passed as a TwiML `<Parameter>` and arrives in the `start` event's `customParameters`.
 4. Server validates/consumes one-time token and processes WS events (`connected/start/media/stop`).
 5. On `start`, server initializes call state and connects Twilio mulaw stream to HomeKit pipeline.
 6. HomeKit sessions use ffmpeg to:
