@@ -17,6 +17,10 @@ This document focuses on stable architecture concepts as of the Priority 3e base
   - Twilio REST helpers for answer/unlock/hangup operations
 - `src/core/state.js`
   - in-memory call session management and stale-session reaping
+- `src/core/stream-auth.js`
+  - HMAC-signed one-time stream token issue and verify
+- `src/core/mulaw-audio.js`
+  - mu-law audio generation: DTMF tones, ringback cycle, chunked send helpers
 - `src/core/ws-events-schema.js`
   - Twilio WebSocket envelope validation and media payload parsing
 - `src/core/config.js`

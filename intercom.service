@@ -1,6 +1,6 @@
 [Unit]
 Description=HomeKit Intercom Server
-Documentation=https://github.com/twilio/media-streams
+Documentation=https://github.com/atdr/twilio-homekit-intercom
 # Start after the network is up AND after the tunnel service
 # so the server is ready by the time Twilio can reach it.
 After=network-online.target cloudflared.service
