@@ -29,7 +29,7 @@
     "hap-nodejs": "^0.14.2",
     "httpdispatcher": "^2.1.2",
     "qrcode-terminal": "^0.12.0",
-    "twilio": "^5.3.7",
+    "twilio": "^6.0.2",
     "websocket": "^1.0.35",
     "zod": "^4.4.3"
   },
