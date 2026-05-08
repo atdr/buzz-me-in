@@ -13,7 +13,9 @@
 
 const twilio = require('twilio');
 const config = require('./src/core/config');
+const { createLogger } = require('./src/core/log');
 
+const logger = createLogger({ component: 'twilio-api' });
 let _client = null;
 function client() {
   if (!_client) {
@@ -27,7 +29,7 @@ function client() {
  * Called when the HomeKit session is dismissed by the user.
  */
 async function hangUpCall(callSid) {
-  console.log(`[Twilio] Hanging up ${callSid}`);
+  logger.info('Hanging up call', { event: 'hangup', callSid });
   try {
     return await client().calls(callSid).update({
       twiml: `<Response><Hangup/></Response>`,

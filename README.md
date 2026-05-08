@@ -255,8 +255,8 @@ Call your Twilio number from any phone (simulate the intercom caller).
 **Pass (server log):**
 
 ```text
-Media WS: start { callSid: 'CA...', streamSid: 'MZ...' }
-[HomeKit] Doorbell triggered
+{"ts":"...","level":"info","message":"Media websocket start accepted","component":"media-ws","callSid":"CA...","event":"start","streamSid":"MZ..."}
+{"ts":"...","level":"info","message":"Doorbell triggered","component":"homekit","event":"doorbell-triggered"}
 ```
 
 **Pass (phone):** A doorbell notification appears on your iPhone.
@@ -277,7 +277,7 @@ Tap the doorbell notification → open the live camera view.
 **Pass (server log):**
 
 ```text
-[ffIn] started
+{"ts":"...","level":"info","message":"Bound mulaw stream to active HomeKit session","component":"homekit","event":"mulaw-stream-bound","sessionId":"..."}
 ```
 
 **Pass (iPhone):** A black video tile appears. You should hear audio from the intercom caller through the iPhone speaker.
@@ -314,7 +314,7 @@ Tap the lock tile in the Home app → set to Unlocked.
 **Pass (server log):**
 
 ```text
-[Twilio] Sending DTMF unlock to CA...
+{"ts":"...","level":"info","message":"Sent DTMF unlock over active media stream","component":"homekit","event":"unlock-requested","callSid":"CA...","digits":"w9w"}
 ```
 
 **Pass (intercom):** The door lock buzzes / the intercom plays digit 9.
@@ -330,8 +330,8 @@ Have the intercom caller hang up (or wait for them to go away).
 **Pass (server log):**
 
 ```text
-Media WS: stop ...
-[HomeKit] endHapSession
+{"ts":"...","level":"info","message":"Media websocket stop event","component":"media-ws","callSid":"CA...","event":"stop"}
+{"ts":"...","level":"info","message":"Media websocket session ended","component":"media-ws","callSid":"CA...","event":"session-ended","reason":"twilio-stop","messageCount":42}
 ```
 
 **Pass (iPhone):** The live view dismisses automatically.
@@ -345,8 +345,8 @@ Open the live view, then dismiss it on the iPhone (tap the X / end button).
 **Pass (server log):**
 
 ```text
-handleStreamRequest STOP
-[Twilio] Hanging up CA...
+{"ts":"...","level":"info","message":"Inbound ffmpeg exited","component":"homekit","event":"ffin-exit","reason":"clean-exit","exitCode":0,"sessionId":"..."}
+{"ts":"...","level":"info","message":"Hanging up call","component":"twilio-api","event":"hangup","callSid":"CA..."}
 ```
 
 **Pass (Twilio):** The call shows as completed in the [Twilio Console call log](https://console.twilio.com/us1/monitor/logs/calls).
