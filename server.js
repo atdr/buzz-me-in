@@ -725,3 +725,23 @@ function beginShutdown(signal) {
 
 process.on('SIGINT', () => beginShutdown('SIGINT'));
 process.on('SIGTERM', () => beginShutdown('SIGTERM'));
+
+// Exit on unexpected errors instead of continuing in an undefined state;
+// systemd restarts the service.
+process.on('uncaughtException', (err) => {
+  logger.error('Uncaught exception; exiting', {
+    event: 'uncaught-exception',
+    reason: 'uncaught-exception',
+    error: err,
+  });
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled promise rejection; exiting', {
+    event: 'unhandled-rejection',
+    reason: 'unhandled-rejection',
+    error: reason instanceof Error ? reason : new Error(String(reason)),
+  });
+  process.exit(1);
+});
