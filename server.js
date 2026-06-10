@@ -334,6 +334,7 @@ class MediaStream {
     this.started = false;
     this.closed = false;
     this.hasHomekitSession = false;
+    this.droppingFrames = false;
     this.ringbackTimer = null;
     this.ringbackOffset = 0;
     this.ringbackPayload = createRingbackMulawCycle();
@@ -503,7 +504,27 @@ class MediaStream {
         if (this.hasHomekitSession) {
           // Only forward live-view audio. Buffering pre-answer audio adds seconds
           // of catch-up latency when HomeKit finally starts ffmpeg.
-          this.mulawStream.write(mediaPayload.decoded);
+          // Drop frames while the buffer needs draining: for live audio,
+          // unbounded queueing behind a stalled ffmpeg is worse than a gap.
+          if (this.mulawStream.writableNeedDrain) {
+            if (!this.droppingFrames) {
+              this.droppingFrames = true;
+              mediaWsLogger.warn('Dropping media frames; mulaw buffer is full', {
+                callSid: this.currentCallSid,
+                event: 'media-frames-dropped',
+                reason: 'mulaw-buffer-full',
+              });
+            }
+          } else {
+            if (this.droppingFrames) {
+              this.droppingFrames = false;
+              mediaWsLogger.info('Resumed forwarding media frames', {
+                callSid: this.currentCallSid,
+                event: 'media-frames-resumed',
+              });
+            }
+            this.mulawStream.write(mediaPayload.decoded);
+          }
         }
         state.markActivity(this.currentCallSid, 'twilio-media');
         break;
