@@ -160,7 +160,14 @@ function getActiveCall() {
 
 function attachMulawStreamToSession(sessionID, stream) {
   const session = activeSessions.get(sessionID);
-  if (!session || !stream || !session.ffIn || !session.ffIn.stdin || session.ffIn.stdin.destroyed) {
+  if (
+    !session ||
+    !stream ||
+    stream.destroyed ||
+    !session.ffIn ||
+    !session.ffIn.stdin ||
+    session.ffIn.stdin.destroyed
+  ) {
     return false;
   }
   if (session.mulawStream && session.mulawStream !== stream) {
@@ -700,6 +707,15 @@ function setMulawPassthrough(stream) {
 }
 
 /**
+ * Forget the current mulaw stream if it matches the one being torn down.
+ * Without this, a HomeKit live view opened after the call ended would pipe
+ * a destroyed stream into ffmpeg and crash on the unhandled 'error' event.
+ */
+function clearMulawPassthrough(stream) {
+  if (currentMulawStream === stream) currentMulawStream = null;
+}
+
+/**
  * Force-close all active HAP sessions.
  * Called when Twilio fires the 'stop' event (caller hung up).
  * Does NOT call hangUpCall — the call is already gone.
@@ -717,6 +733,7 @@ function setOnHapSessionStarted(handler) {
 module.exports = {
   triggerDoorbell,
   setMulawPassthrough,
+  clearMulawPassthrough,
   endHapSession,
   setOnHapSessionStarted,
 };

@@ -581,6 +581,7 @@ class MediaStream {
     });
     clearTimeout(this.startTimeout);
     // Guard: close() can fire without a prior 'stop' event (e.g. network drop).
+    homekit.clearMulawPassthrough(this.mulawStream);
     this.mulawStream.destroy();
     const { cleared } = state.clearIfConnection(this.connection, reason);
     if (this.currentCallSid && activeMediaStreamsByCallSid.get(this.currentCallSid) === this) {
