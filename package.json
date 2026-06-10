@@ -9,7 +9,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "check": "node --check server.js homekit.js twilio-api.js src/core/*.js",
-    "test": "node --test",
+    "test": "DOTENV_CONFIG_PATH=/dev/null node --test",
     "typecheck": "tsc --noEmit"
   },
   "license": "MIT",
