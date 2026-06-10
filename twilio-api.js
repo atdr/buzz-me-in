@@ -43,9 +43,11 @@ async function hangUpCall(callSid) {
 }
 
 function isCallAlreadyEndedError(error) {
-  return (
-    error && typeof error.message === 'string' && error.message.includes('Call is not in-progress')
-  );
+  if (!error) return false;
+  // Twilio error 21220: call cannot be updated because it is not in progress.
+  if (error.code === 21220) return true;
+  // Fallback for SDK errors that carry only a message.
+  return typeof error.message === 'string' && error.message.includes('Call is not in-progress');
 }
 
 module.exports = { hangUpCall };
