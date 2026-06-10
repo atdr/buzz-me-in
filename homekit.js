@@ -505,6 +505,24 @@ function _startSession(sessionID, s, request, callback) {
 // Session stop: tear down ffmpeg, optionally hang up Twilio call
 // ---------------------------------------------------------------------------
 
+const FFMPEG_KILL_GRACE_MS = 2000;
+
+/**
+ * SIGINT first for a clean ffmpeg exit, escalating to SIGKILL if the
+ * process is still alive after the grace period (a wedged ffmpeg would
+ * otherwise hold its UDP ports and CPU indefinitely).
+ * @param {import('child_process').ChildProcess} proc
+ */
+function killFfmpeg(proc) {
+  if (proc.exitCode !== null || proc.signalCode !== null) return;
+  proc.kill('SIGINT');
+  const escalation = setTimeout(() => {
+    if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL');
+  }, FFMPEG_KILL_GRACE_MS);
+  escalation.unref();
+  proc.once('exit', () => clearTimeout(escalation));
+}
+
 function _stopSession(sessionID, hangUp) {
   const s = activeSessions.get(sessionID);
   if (!s) return;
@@ -516,9 +534,9 @@ function _stopSession(sessionID, hangUp) {
         (s.mulawStream || currentMulawStream).unpipe(s.ffIn.stdin);
       } catch {}
     }
-    s.ffIn.kill('SIGINT');
+    killFfmpeg(s.ffIn);
   }
-  if (s.ffOut) s.ffOut.kill('SIGINT');
+  if (s.ffOut) killFfmpeg(s.ffOut);
   if (s.sdpPath) {
     try {
       fs.unlinkSync(s.sdpPath);
