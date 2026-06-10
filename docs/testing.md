@@ -30,6 +30,7 @@ npm run test
 
 - `tests/config.test.cjs` - configuration loading and validation behavior
 - `tests/state.test.cjs` - call session lifecycle and stale-session cleanup
+- `tests/stream-auth.test.cjs` - stream token issue/verify, replay and tamper rejection, TwiML builder
 - `tests/ws-events-schema.test.cjs` - Twilio WS envelope and media payload validation
 - `tests/helpers/env.cjs` - env/module-cache test helpers
 
