@@ -730,10 +730,26 @@ function setOnHapSessionStarted(handler) {
   onHapSessionStarted = typeof handler === 'function' ? handler : null;
 }
 
+/**
+ * Graceful shutdown: tear down streaming sessions and unpublish the
+ * accessory so the mDNS advertisement does not linger after exit.
+ */
+function shutdown() {
+  endHapSession();
+  accessory.destroy().catch((error) => {
+    logger.error('Failed to destroy HAP accessory during shutdown', {
+      event: 'accessory-destroy-failed',
+      reason: 'destroy-threw',
+      error,
+    });
+  });
+}
+
 module.exports = {
   triggerDoorbell,
   setMulawPassthrough,
   clearMulawPassthrough,
   endHapSession,
   setOnHapSessionStarted,
+  shutdown,
 };

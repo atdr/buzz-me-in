@@ -703,8 +703,8 @@ function beginShutdown(signal) {
   }, SHUTDOWN_GRACE_MS);
   if (typeof forceExitTimer.unref === 'function') forceExitTimer.unref();
 
-  const { cleared } = state.clearActiveCall('server-shutdown');
-  if (cleared) homekit.endHapSession();
+  state.clearActiveCall('server-shutdown');
+  homekit.shutdown();
 
   for (const connection of activeWsConnections) {
     try {
