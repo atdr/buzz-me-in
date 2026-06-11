@@ -27,9 +27,12 @@ in CI (commitlint with `@commitlint/config-conventional`); run
 `npx commitlint --from origin/main` to check locally.
 
 **Pull requests** target `main`, merge in dependency order, and must pass all five
-quality gates (below) locally before being opened. Releases are automated with
-release-please, which derives version bumps and the changelog from commit types —
-`feat` commits trigger a minor bump, `fix` a patch.
+quality gates (below) locally before being opened. PR titles use the same
+conventional format as commits (`type(scope): summary`, enforced in CI) — if a PR
+is ever squash-merged, the title becomes the commit on `main` that release-please
+and the changelog read. Releases are automated with release-please, which derives
+version bumps and the changelog from commit types — `feat` commits trigger a minor
+bump, `fix` a patch.
 
 ## Quality gates
 
