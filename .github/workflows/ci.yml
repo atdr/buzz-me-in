@@ -8,6 +8,7 @@ on:
 
 jobs:
   commitlint:
+    name: Commit messages (commitlint)
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -23,6 +24,7 @@ jobs:
         uses: wagoid/commitlint-github-action@v6
 
   quality:
+    name: Quality gates (Node ${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

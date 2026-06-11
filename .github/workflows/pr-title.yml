@@ -1,4 +1,4 @@
-name: PR Title
+name: PR checks
 
 on:
   pull_request:
@@ -13,6 +13,7 @@ permissions:
 
 jobs:
   pr-title:
+    name: Conventional PR title
     runs-on: ubuntu-latest
     steps:
       - name: Check PR title is a conventional commit
