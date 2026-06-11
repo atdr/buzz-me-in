@@ -93,6 +93,51 @@ function createDtmfMulawTone(digit, options = {}) {
 }
 
 /**
+ * Inverse of {@link linear16ToMulaw}.
+ *
+ * @param {number} mulawByte
+ * @returns {number}
+ */
+function mulawToLinear16(mulawByte) {
+  const u = ~mulawByte & 0xff;
+  const sign = u & 0x80;
+  const exponent = (u >> 4) & 0x07;
+  const mantissa = u & 0x0f;
+  const magnitude = (((mantissa << 3) + MULAW_BIAS) << exponent) - MULAW_BIAS;
+  return sign ? -magnitude : magnitude;
+}
+
+/**
+ * One ringback cycle as a PCM16/8kHz mono WAV file, for serving the
+ * ringtone over HTTP without shelling out to ffmpeg.
+ *
+ * @returns {Buffer}
+ */
+function createRingbackWav() {
+  const mulaw = createRingbackMulawCycle();
+  const pcm = Buffer.alloc(mulaw.length * 2);
+  for (let i = 0; i < mulaw.length; i++) {
+    pcm.writeInt16LE(mulawToLinear16(mulaw[i]), i * 2);
+  }
+
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0, 'ascii');
+  header.writeUInt32LE(36 + pcm.length, 4);
+  header.write('WAVE', 8, 'ascii');
+  header.write('fmt ', 12, 'ascii');
+  header.writeUInt32LE(16, 16); // fmt chunk size
+  header.writeUInt16LE(1, 20); // PCM
+  header.writeUInt16LE(1, 22); // mono
+  header.writeUInt32LE(SAMPLE_RATE_HZ, 24);
+  header.writeUInt32LE(SAMPLE_RATE_HZ * 2, 28); // byte rate
+  header.writeUInt16LE(2, 32); // block align
+  header.writeUInt16LE(16, 34); // bits per sample
+  header.write('data', 36, 'ascii');
+  header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
+
+/**
  * Generate one UK-style ringback cycle as raw mu-law/8kHz audio:
  * 400 ms tone, 200 ms silence, 400 ms tone, 2000 ms silence.
  *
@@ -180,7 +225,9 @@ async function sendDtmfSequence(activeCall, digits, options = {}) {
 module.exports = {
   createDtmfMulawTone,
   createRingbackMulawCycle,
+  createRingbackWav,
   linear16ToMulaw,
+  mulawToLinear16,
   sendDtmfSequence,
   sendMulawAudio,
 };

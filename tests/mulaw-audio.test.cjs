@@ -5,7 +5,9 @@ const assert = require('node:assert/strict');
 const {
   createDtmfMulawTone,
   createRingbackMulawCycle,
+  createRingbackWav,
   linear16ToMulaw,
+  mulawToLinear16,
   sendDtmfSequence,
   sendMulawAudio,
 } = require('../src/core/mulaw-audio');
@@ -34,6 +36,28 @@ describe('mu-law audio helpers', () => {
 
   test('rejects unsupported DTMF digits', () => {
     assert.throws(() => createDtmfMulawTone('x'), /Unsupported DTMF digit/);
+  });
+
+  test('mu-law decode inverts encode within quantization error', () => {
+    for (const sample of [0, 1000, -1000, 12000, -12000, 32000, -32000]) {
+      const roundTripped = mulawToLinear16(linear16ToMulaw(sample));
+      assert.ok(
+        Math.abs(roundTripped - sample) <= Math.max(64, Math.abs(sample) / 16),
+        `round trip of ${sample} gave ${roundTripped}`
+      );
+    }
+  });
+
+  test('creates a PCM16 WAV of one ringback cycle', () => {
+    const wav = createRingbackWav();
+
+    assert.equal(wav.subarray(0, 4).toString('ascii'), 'RIFF');
+    assert.equal(wav.subarray(8, 12).toString('ascii'), 'WAVE');
+    assert.equal(wav.readUInt16LE(20), 1); // PCM format tag
+    assert.equal(wav.readUInt16LE(22), 1); // mono
+    assert.equal(wav.readUInt32LE(24), 8000); // sample rate
+    assert.equal(wav.readUInt32LE(40), 24000 * 2); // 3 s of 16-bit samples
+    assert.equal(wav.length, 44 + 24000 * 2);
   });
 
   test('sends audio to Twilio media stream', () => {

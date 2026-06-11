@@ -1,18 +1,20 @@
 // based on https://github.com/twilio/media-streams/blob/master/node/basic/README.md
 'use strict';
 
-const fs = require('fs');
 const http = require('http');
 const twilio = require('twilio');
 const { PassThrough } = require('stream');
-const { spawn } = require('child_process');
 const HttpDispatcher = require('httpdispatcher');
 const WebSocketServer = require('websocket').server;
 const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('./src/core/ws-events-schema');
 
 const config = require('./src/core/config');
 const state = require('./src/core/state');
-const { createRingbackMulawCycle, sendMulawAudio } = require('./src/core/mulaw-audio');
+const {
+  createRingbackMulawCycle,
+  createRingbackWav,
+  sendMulawAudio,
+} = require('./src/core/mulaw-audio');
 const {
   buildConnectStreamTwiml,
   STREAM_TOKEN_PARAMETER_NAME,
@@ -30,7 +32,6 @@ const STREAM_START_TIMEOUT_MS = 5000;
 const STATUS_BEARER_PREFIX = 'Bearer ';
 const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
 const SHUTDOWN_GRACE_MS = config.shutdownGraceMs;
-let ringtoneReady = false;
 let shuttingDown = false;
 const activeWsConnections = new Set();
 const logger = createLogger({ component: 'server' });
@@ -44,90 +45,12 @@ homekit.setOnHapSessionStarted((callSid) => {
 });
 
 // ---------------------------------------------------------------------------
-// Ringtone — generated once at startup by ffmpeg.
-// UK-style ring: 400Hz+450Hz dual tone, 0.4 s on / 2.6 s off in a 3 s loop.
-// Served at GET /ringtone for debug/manual checks. Runtime ringback is sent over
-// the bidirectional media stream so Twilio keeps the same WebSocket connected.
+// Ringtone — one UK-style ringback cycle (400Hz+450Hz dual tone), generated
+// in-process as a WAV buffer. Served at GET /ringtone for debug/manual
+// checks. Runtime ringback is sent over the bidirectional media stream so
+// Twilio keeps the same WebSocket connected.
 // ---------------------------------------------------------------------------
-const RINGTONE_PATH = '/tmp/intercom_ringtone.wav';
-
-function generateRingtone() {
-  return new Promise((resolve) => {
-    // Generate a 3-second UK-style double ring tone:
-    //   400ms on, 200ms off, 400ms on, 2000ms off  (= 3 s, looped by Twilio)
-    // Each burst is a 400Hz + 450Hz dual tone mixed at half amplitude.
-    const ff = spawn('ffmpeg', [
-      '-y',
-      '-loglevel',
-      'warning',
-      // Burst 1: 400ms
-      '-f',
-      'lavfi',
-      '-i',
-      'sine=frequency=400:duration=0.4',
-      '-f',
-      'lavfi',
-      '-i',
-      'sine=frequency=450:duration=0.4',
-      // Burst 2: 400ms
-      '-f',
-      'lavfi',
-      '-i',
-      'sine=frequency=400:duration=0.4',
-      '-f',
-      'lavfi',
-      '-i',
-      'sine=frequency=450:duration=0.4',
-      // Silence source
-      '-f',
-      'lavfi',
-      '-i',
-      'anullsrc=r=8000:cl=mono',
-      '-filter_complex',
-      [
-        // Mix each burst pair
-        '[0][1]amix=inputs=2:duration=shortest,volume=0.5[b1]',
-        '[2][3]amix=inputs=2:duration=shortest,volume=0.5[b2]',
-        // 200ms silence between bursts, 2000ms silence after
-        '[4]atrim=duration=0.2[gap]',
-        '[4]atrim=duration=2.0[tail]',
-        // Concatenate: burst1, gap, burst2, tail
-        '[b1][gap][b2][tail]concat=n=4:v=0:a=1[out]',
-      ].join(';'),
-      '-map',
-      '[out]',
-      '-ar',
-      '8000',
-      '-ac',
-      '1',
-      RINGTONE_PATH,
-    ]);
-    ff.on('close', (code) => {
-      if (code === 0) {
-        logger.info('Ringtone generated', {
-          event: 'ringtone-generated',
-          path: RINGTONE_PATH,
-        });
-        ringtoneReady = true;
-      } else {
-        logger.error('Ringtone generation failed', {
-          event: 'ringtone-generation-failed',
-          reason: 'ffmpeg-exit-nonzero',
-          exitCode: code,
-        });
-      }
-      resolve();
-    });
-    ff.stderr.on('data', (d) => {
-      mediaWsLogger.warn('Ringtone ffmpeg stderr', {
-        event: 'ringtone-ffmpeg-stderr',
-        detail: d.toString('utf8').trim(),
-      });
-    });
-  });
-}
-
-generateRingtone();
+const RINGTONE_WAV = createRingbackWav();
 
 const dispatcher = new HttpDispatcher();
 const wsserver = http.createServer(handleRequest);
@@ -248,23 +171,16 @@ async function handleTwimlRequest(req, res) {
 }
 
 /**
- * GET /ringtone.wav
- * UK-style ring tone served to Twilio via <Play loop="0">.
+ * GET /ringtone
+ * UK-style ring tone WAV for debug/manual checks.
  */
 dispatcher.onGet('/ringtone', function (_req, res) {
-  fs.readFile(RINGTONE_PATH, (err, data) => {
-    if (err) {
-      res.writeHead(503);
-      res.end('Ringtone not ready');
-      return;
-    }
-    res.writeHead(200, {
-      'Content-Type': 'audio/wav',
-      'Content-Length': data.length,
-      'Cache-Control': 'no-store',
-    });
-    res.end(data);
+  res.writeHead(200, {
+    'Content-Type': 'audio/wav',
+    'Content-Length': RINGTONE_WAV.length,
+    'Cache-Control': 'no-store',
   });
+  res.end(RINGTONE_WAV);
 });
 
 /**
@@ -289,11 +205,8 @@ dispatcher.onGet('/healthz', function (_req, res) {
 });
 
 dispatcher.onGet('/readyz', function (_req, res) {
-  const body = JSON.stringify({
-    ok: ringtoneReady,
-    checks: { ringtoneGenerated: ringtoneReady },
-  });
-  res.writeHead(ringtoneReady ? 200 : 503, { 'Content-Type': 'application/json' });
+  const body = JSON.stringify({ ok: true });
+  res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(body);
 });
 
