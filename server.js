@@ -334,6 +334,7 @@ class MediaStream {
     this.started = false;
     this.closed = false;
     this.hasHomekitSession = false;
+    this.droppingFrames = false;
     this.ringbackTimer = null;
     this.ringbackOffset = 0;
     this.ringbackPayload = createRingbackMulawCycle();
@@ -503,7 +504,27 @@ class MediaStream {
         if (this.hasHomekitSession) {
           // Only forward live-view audio. Buffering pre-answer audio adds seconds
           // of catch-up latency when HomeKit finally starts ffmpeg.
-          this.mulawStream.write(mediaPayload.decoded);
+          // Drop frames while the buffer needs draining: for live audio,
+          // unbounded queueing behind a stalled ffmpeg is worse than a gap.
+          if (this.mulawStream.writableNeedDrain) {
+            if (!this.droppingFrames) {
+              this.droppingFrames = true;
+              mediaWsLogger.warn('Dropping media frames; mulaw buffer is full', {
+                callSid: this.currentCallSid,
+                event: 'media-frames-dropped',
+                reason: 'mulaw-buffer-full',
+              });
+            }
+          } else {
+            if (this.droppingFrames) {
+              this.droppingFrames = false;
+              mediaWsLogger.info('Resumed forwarding media frames', {
+                callSid: this.currentCallSid,
+                event: 'media-frames-resumed',
+              });
+            }
+            this.mulawStream.write(mediaPayload.decoded);
+          }
         }
         state.markActivity(this.currentCallSid, 'twilio-media');
         break;
@@ -581,6 +602,7 @@ class MediaStream {
     });
     clearTimeout(this.startTimeout);
     // Guard: close() can fire without a prior 'stop' event (e.g. network drop).
+    homekit.clearMulawPassthrough(this.mulawStream);
     this.mulawStream.destroy();
     const { cleared } = state.clearIfConnection(this.connection, reason);
     if (this.currentCallSid && activeMediaStreamsByCallSid.get(this.currentCallSid) === this) {
@@ -702,8 +724,8 @@ function beginShutdown(signal) {
   }, SHUTDOWN_GRACE_MS);
   if (typeof forceExitTimer.unref === 'function') forceExitTimer.unref();
 
-  const { cleared } = state.clearActiveCall('server-shutdown');
-  if (cleared) homekit.endHapSession();
+  state.clearActiveCall('server-shutdown');
+  homekit.shutdown();
 
   for (const connection of activeWsConnections) {
     try {
@@ -724,3 +746,23 @@ function beginShutdown(signal) {
 
 process.on('SIGINT', () => beginShutdown('SIGINT'));
 process.on('SIGTERM', () => beginShutdown('SIGTERM'));
+
+// Exit on unexpected errors instead of continuing in an undefined state;
+// systemd restarts the service.
+process.on('uncaughtException', (err) => {
+  logger.error('Uncaught exception; exiting', {
+    event: 'uncaught-exception',
+    reason: 'uncaught-exception',
+    error: err,
+  });
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled promise rejection; exiting', {
+    event: 'unhandled-rejection',
+    reason: 'unhandled-rejection',
+    error: reason instanceof Error ? reason : new Error(String(reason)),
+  });
+  process.exit(1);
+});

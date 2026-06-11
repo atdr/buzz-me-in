@@ -160,7 +160,14 @@ function getActiveCall() {
 
 function attachMulawStreamToSession(sessionID, stream) {
   const session = activeSessions.get(sessionID);
-  if (!session || !stream || !session.ffIn || !session.ffIn.stdin || session.ffIn.stdin.destroyed) {
+  if (
+    !session ||
+    !stream ||
+    stream.destroyed ||
+    !session.ffIn ||
+    !session.ffIn.stdin ||
+    session.ffIn.stdin.destroyed
+  ) {
     return false;
   }
   if (session.mulawStream && session.mulawStream !== stream) {
@@ -498,6 +505,24 @@ function _startSession(sessionID, s, request, callback) {
 // Session stop: tear down ffmpeg, optionally hang up Twilio call
 // ---------------------------------------------------------------------------
 
+const FFMPEG_KILL_GRACE_MS = 2000;
+
+/**
+ * SIGINT first for a clean ffmpeg exit, escalating to SIGKILL if the
+ * process is still alive after the grace period (a wedged ffmpeg would
+ * otherwise hold its UDP ports and CPU indefinitely).
+ * @param {import('child_process').ChildProcess} proc
+ */
+function killFfmpeg(proc) {
+  if (proc.exitCode !== null || proc.signalCode !== null) return;
+  proc.kill('SIGINT');
+  const escalation = setTimeout(() => {
+    if (proc.exitCode === null && proc.signalCode === null) proc.kill('SIGKILL');
+  }, FFMPEG_KILL_GRACE_MS);
+  escalation.unref();
+  proc.once('exit', () => clearTimeout(escalation));
+}
+
 function _stopSession(sessionID, hangUp) {
   const s = activeSessions.get(sessionID);
   if (!s) return;
@@ -509,9 +534,9 @@ function _stopSession(sessionID, hangUp) {
         (s.mulawStream || currentMulawStream).unpipe(s.ffIn.stdin);
       } catch {}
     }
-    s.ffIn.kill('SIGINT');
+    killFfmpeg(s.ffIn);
   }
-  if (s.ffOut) s.ffOut.kill('SIGINT');
+  if (s.ffOut) killFfmpeg(s.ffOut);
   if (s.sdpPath) {
     try {
       fs.unlinkSync(s.sdpPath);
@@ -700,6 +725,15 @@ function setMulawPassthrough(stream) {
 }
 
 /**
+ * Forget the current mulaw stream if it matches the one being torn down.
+ * Without this, a HomeKit live view opened after the call ended would pipe
+ * a destroyed stream into ffmpeg and crash on the unhandled 'error' event.
+ */
+function clearMulawPassthrough(stream) {
+  if (currentMulawStream === stream) currentMulawStream = null;
+}
+
+/**
  * Force-close all active HAP sessions.
  * Called when Twilio fires the 'stop' event (caller hung up).
  * Does NOT call hangUpCall — the call is already gone.
@@ -714,9 +748,26 @@ function setOnHapSessionStarted(handler) {
   onHapSessionStarted = typeof handler === 'function' ? handler : null;
 }
 
+/**
+ * Graceful shutdown: tear down streaming sessions and unpublish the
+ * accessory so the mDNS advertisement does not linger after exit.
+ */
+function shutdown() {
+  endHapSession();
+  accessory.destroy().catch((error) => {
+    logger.error('Failed to destroy HAP accessory during shutdown', {
+      event: 'accessory-destroy-failed',
+      reason: 'destroy-threw',
+      error,
+    });
+  });
+}
+
 module.exports = {
   triggerDoorbell,
   setMulawPassthrough,
+  clearMulawPassthrough,
   endHapSession,
   setOnHapSessionStarted,
+  shutdown,
 };
