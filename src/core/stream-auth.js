@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const config = require('./config');
+const { safeEqualString } = require('./safe-equal');
 
 const STREAM_TOKEN_PARAMETER_NAME = 'token';
 const STREAM_TOKEN_VERSION = 1;
@@ -16,15 +17,6 @@ function fromBase64Url(value) {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
   const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
   return Buffer.from(padded, 'base64');
-}
-
-function safeEqualString(a, b) {
-  const left = Buffer.from(a, 'utf8');
-  const right = Buffer.from(b, 'utf8');
-  const len = Math.max(left.length, right.length);
-  const paddedLeft = Buffer.concat([left, Buffer.alloc(len - left.length)]);
-  const paddedRight = Buffer.concat([right, Buffer.alloc(len - right.length)]);
-  return crypto.timingSafeEqual(paddedLeft, paddedRight);
 }
 
 function pruneExpiredNonces() {
