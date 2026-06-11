@@ -7,3 +7,18 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: chore(deps)
+    groups:
+      dev-dependencies:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+
+  # Moving major tags (@v5) absorb minor/patch action updates automatically
+  # but never cross majors; this surfaces new major versions as PRs.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
