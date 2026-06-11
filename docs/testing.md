@@ -67,7 +67,7 @@ The runtime exports singleton-style modules. Tests should avoid relying on test 
 
 ## CI notes
 
-CI runs all five gates (lint, format check, syntax check, typecheck, tests) plus `npm audit --audit-level=high` on Node 20 and Node 22. Pull requests additionally run commitlint over the branch commits and a conventional PR title check.
+CI runs all five gates (lint, format check, syntax check, typecheck, tests) plus `npm audit --audit-level=high` on Node 20, 22, and 24. Pull requests additionally run commitlint over the branch commits and a conventional PR title check.
 
 Locally, husky hooks (installed automatically by `npm install`) run commitlint on each commit message and lint-staged (ESLint + Prettier on staged files) before each commit.
 

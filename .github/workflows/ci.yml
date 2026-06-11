@@ -6,6 +6,11 @@ on:
       - main
   pull_request:
 
+# Cancel superseded runs when a PR branch is force-pushed or updated.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   commitlint:
     name: Commit messages (commitlint)
@@ -29,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node-version: [20, 22]
+        node-version: [20, 22, 24]
     steps:
       - name: Checkout
         uses: actions/checkout@v5
