@@ -4,7 +4,6 @@
 const http = require('http');
 const twilio = require('twilio');
 const { PassThrough } = require('stream');
-const HttpDispatcher = require('httpdispatcher');
 const WebSocketServer = require('websocket').server;
 const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('./src/core/ws-events-schema');
 
@@ -52,7 +51,6 @@ homekit.setOnHapSessionStarted((callSid) => {
 // ---------------------------------------------------------------------------
 const RINGTONE_WAV = createRingbackWav();
 
-const dispatcher = new HttpDispatcher();
 const wsserver = http.createServer(handleRequest);
 
 const mediaws = new WebSocketServer({
@@ -101,7 +99,13 @@ function handleRequest(request, response) {
       });
       return;
     }
-    dispatcher.dispatch(request, response);
+    const handler = request.method === 'GET' ? GET_ROUTES.get(path) : undefined;
+    if (handler) {
+      handler(request, response);
+      return;
+    }
+    response.writeHead(404);
+    response.end('Not Found');
   } catch (err) {
     logger.error('HTTP request handling failed', {
       event: 'request-handler-error',
@@ -170,11 +174,14 @@ async function handleTwimlRequest(req, res) {
   res.end(body);
 }
 
+/** @type {Map<string, (req: import('http').IncomingMessage, res: import('http').ServerResponse) => void>} */
+const GET_ROUTES = new Map();
+
 /**
  * GET /ringtone
  * UK-style ring tone WAV for debug/manual checks.
  */
-dispatcher.onGet('/ringtone', function (_req, res) {
+GET_ROUTES.set('/ringtone', function (_req, res) {
   res.writeHead(200, {
     'Content-Type': 'audio/wav',
     'Content-Length': RINGTONE_WAV.length,
@@ -187,8 +194,8 @@ dispatcher.onGet('/ringtone', function (_req, res) {
  * GET /status — quick health/debug endpoint
  * Returns the current active call info (callSid only, no credentials).
  */
-dispatcher.onGet('/status', function (_req, res) {
-  if (!isAuthorizedForStatus(_req)) {
+GET_ROUTES.set('/status', function (req, res) {
+  if (!isAuthorizedForStatus(req)) {
     res.writeHead(401);
     res.end('Unauthorized');
     return;
@@ -198,13 +205,13 @@ dispatcher.onGet('/status', function (_req, res) {
   res.end(body);
 });
 
-dispatcher.onGet('/healthz', function (_req, res) {
+GET_ROUTES.set('/healthz', function (_req, res) {
   const body = JSON.stringify({ ok: true });
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(body);
 });
 
-dispatcher.onGet('/readyz', function (_req, res) {
+GET_ROUTES.set('/readyz', function (_req, res) {
   const body = JSON.stringify({ ok: true });
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(body);
