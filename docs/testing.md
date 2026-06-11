@@ -33,6 +33,8 @@ npm run test
 - `tests/stream-auth.test.cjs` - stream token issue/verify, replay and tamper rejection, TwiML builder
 - `tests/media-stream.test.cjs` - Twilio media stream protocol (start/media/stop, token checks, teardown)
 - `tests/ws-events-schema.test.cjs` - Twilio WS envelope and media payload validation
+- `tests/mulaw-audio.test.cjs` - mu-law encode/decode, DTMF and ringback generation, WAV rendering
+- `tests/log.test.cjs` - structured logger output, levels, and error normalization
 - `tests/helpers/env.cjs` - env/module-cache test helpers
 
 ## When adding new tests
@@ -65,6 +67,10 @@ The runtime exports singleton-style modules. Tests should avoid relying on test 
 
 ## CI notes
 
-CI runs all five gates (lint, format check, syntax check, typecheck, tests) on Node 20 and Node 22.
+CI runs all five gates (lint, format check, syntax check, typecheck, tests) plus `npm audit --audit-level=high` on Node 20 and Node 22. Pull requests additionally run commitlint over the branch commits and a conventional PR title check.
+
+Locally, husky hooks (installed automatically by `npm install`) run commitlint on each commit message and lint-staged (ESLint + Prettier on staged files) before each commit.
+
+Releases are automated by release-please, which maintains a release PR on `main` derived from conventional commit history.
 
 If a change passes locally but fails in CI, first verify Node version parity and rerun all commands from a clean working tree.

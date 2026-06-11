@@ -80,14 +80,26 @@ logger.error('Thing failed', { event: 'thing-failed', reason: 'why', error: err 
 
 ## Keeping documentation accurate
 
+A PR that adds or removes a module, test file, HTTP endpoint, env var, or CI job must
+update the affected docs in the same PR. Before opening a PR, grep the docs for names
+related to your change. Specific sync rules:
+
 **`README.md`** — the end-to-end test sequence contains server log examples. These
 must exactly match the `message` strings, `component` values, and field names emitted
 by the actual `logger.*` calls in the code. Verify against the source before writing
-an example.
+an example. The file structure tree must track added/removed modules and top-level
+files. Endpoint claims (routes, auth, response shapes in the HTTP endpoints table and
+test stages) must match the routes in `server.js`. Setup steps may only reference
+files that exist in the repo.
 
 **`docs/architecture.md`** — the runtime components list must stay in sync with
 `src/core/`. When a module is added, removed, or its responsibilities change, update
-the list. Descriptions must reflect what the module exports today, not what it once did.
+the list. Descriptions must reflect what the module exports today, not what it once
+did. The auth boundaries section must list every endpoint, including intentionally
+unauthenticated ones.
+
+**`docs/testing.md`** — adding or removing a test file updates the Test layout list.
+Changing CI workflows, git hooks, or release automation updates the CI notes section.
 
 **`.env.example`** — the single source of truth for environment variables. When adding
 or changing a variable, update `.env.example` with an inline comment. The README

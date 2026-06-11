@@ -64,6 +64,9 @@ Session state is managed by `src/core/state.js`:
   - one-time nonce consumption to prevent replay
 - Status endpoint auth:
   - bearer token validation for `GET /status`
+- Intentionally unauthenticated:
+  - `GET /healthz` and `GET /readyz` (liveness/readiness probes, return only `{"ok":true}`)
+  - `GET /ringtone` (debug WAV)
 
 ## Logging model
 
