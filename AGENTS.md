@@ -11,6 +11,31 @@ The codebase uses JSDoc annotations throughout for type safety without a TypeScr
 compilation step. Follow the existing `@param`, `@returns`, `@typedef`, and `@import`
 patterns when adding or modifying functions.
 
+## Git workflow
+
+Never commit directly to `main` — every change lands via a pull request.
+
+**Branches** are named `<type>/<short-description>` using the same types as commit
+messages, e.g. `fix/runtime-robustness`, `docs/refresh-claude-md`.
+
+**Commits** follow [Conventional Commits](https://www.conventionalcommits.org/):
+`<type>(<optional scope>): <imperative summary>`. Allowed types are `feat`, `fix`,
+`refactor`, `test`, `docs`, `chore`, and `ci`. Scope is typically the module touched
+(`server`, `homekit`, `config`, `core`, `deps`). Keep each commit to one logical
+change so it can be reviewed and reverted independently. Commit messages are linted
+in CI (commitlint with `@commitlint/config-conventional`) and locally by a husky
+`commit-msg` hook, which `npm install` sets up automatically. A `pre-commit` hook
+runs lint-staged (ESLint + Prettier on staged files only); the five full quality
+gates stay in CI and remain the documented pre-PR step.
+
+**Pull requests** target `main`, merge in dependency order, and must pass all five
+quality gates (below) locally before being opened. PR titles use the same
+conventional format as commits (`type(scope): summary`, enforced in CI) — if a PR
+is ever squash-merged, the title becomes the commit on `main` that release-please
+and the changelog read. Releases are automated with release-please, which derives
+version bumps and the changelog from commit types — `feat` commits trigger a minor
+bump, `fix` a patch.
+
 ## Quality gates
 
 Run `npm install` first if `node_modules` is absent, then run all five gates before

@@ -1,6 +1,10 @@
 'use strict';
 
-require('dotenv').config();
+// DOTENV_CONFIG_PATH lets tests point at an empty file so the local .env
+// cannot leak values into hermetic env-var assertions.
+require('dotenv').config(
+  process.env.DOTENV_CONFIG_PATH ? { path: process.env.DOTENV_CONFIG_PATH } : undefined
+);
 
 function fail(message) {
   throw new Error(`[config] ${message}`);

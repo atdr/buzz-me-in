@@ -47,6 +47,8 @@ npm run test
 
 Use helper wrappers from `tests/helpers/env.cjs` to set and restore env values for each test. Avoid mutating `process.env` globally without restoring it.
 
+The `npm test` script sets `DOTENV_CONFIG_PATH=/dev/null` so that a developer's local `.env` file cannot leak values into the test environment. If you invoke `node --test` directly, set this variable yourself.
+
 ### Module cache invalidation
 
 Modules like `config` and `state` are loaded once by Node. If a test depends on changed env values, reload modules with cache clearing via `freshRequire`.
