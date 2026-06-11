@@ -6,6 +6,7 @@ A Raspberry Pi server that bridges an apartment intercom system into Apple HomeK
 
 - [Architecture guide](docs/architecture.md)
 - [Testing guide](docs/testing.md)
+- [Contributor guide](AGENTS.md) — git workflow, module format, logging conventions
 
 ## How it works
 
@@ -200,6 +201,15 @@ sudo systemctl status cloudflared
 sudo systemctl status intercom
 ```
 
+### Deploying updates
+
+After the initial setup, ship code changes by copying the repo to the Pi and restarting the service:
+
+```bash
+rsync -av --exclude node_modules --exclude .env ./ pi@raspberrypi.local:~/intercom/
+ssh pi@raspberrypi.local 'cd ~/intercom && npm install && sudo systemctl restart intercom'
+```
+
 ---
 
 ## End-to-end test sequence
@@ -361,19 +371,24 @@ curl https://intercom.yourdomain.com/readyz
 
 ```text
 .
-├── server.js               # HTTP + WebSocket server; MediaStream class
+├── server.js               # HTTP routes + WebSocket server; graceful shutdown
 ├── homekit.js              # HAP-NodeJS camera+doorbell accessory; ffmpeg pipelines
 ├── twilio-api.js           # Twilio REST API helpers (hangup)
 ├── src/core/
 │   ├── config.js           # validated env/config loading
 │   ├── log.js              # structured JSON-lines logger
-│   ├── mulaw-audio.js      # mu-law audio generation (DTMF, ringback)
+│   ├── media-stream.js     # Twilio media stream protocol (start/media/stop)
+│   ├── mulaw-audio.js      # mu-law audio generation (DTMF, ringback, ringtone WAV)
+│   ├── safe-equal.js       # constant-time string comparison
 │   ├── state.js            # call session management and stale-session reaping
 │   ├── stream-auth.js      # one-time stream token sign/verify
 │   ├── types.js            # JSDoc typedefs (no runtime exports)
 │   └── ws-events-schema.js # Twilio WS envelope validation and media payload parsing
+├── tests/                  # node --test suites (*.test.cjs)
+├── docs/                   # architecture and testing guides
 ├── intercom.service        # systemd unit for the Node.js server
 ├── cloudflared.service     # systemd unit for the Cloudflare Tunnel
+├── commitlint.config.js    # conventional commit rules (enforced by hooks + CI)
 ├── .env.example            # environment variable template
 └── package.json
 ```
