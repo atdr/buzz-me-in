@@ -21,6 +21,8 @@ This document focuses on stable architecture concepts. It intentionally avoids t
   - mu-law audio generation: DTMF tones, ringback cycle, chunked send helpers
 - `src/core/ws-events-schema.js`
   - Twilio WebSocket envelope validation and media payload parsing
+- `src/core/safe-equal.js`
+  - constant-time string comparison shared by auth checks
 - `src/core/config.js`
   - validated environment/config loading
 - `src/core/log.js`

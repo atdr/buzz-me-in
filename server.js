@@ -4,7 +4,6 @@
 const fs = require('fs');
 const http = require('http');
 const twilio = require('twilio');
-const crypto = require('crypto');
 const { PassThrough } = require('stream');
 const { spawn } = require('child_process');
 const HttpDispatcher = require('httpdispatcher');
@@ -21,6 +20,7 @@ const {
 } = require('./src/core/stream-auth');
 const homekit = require('./homekit');
 const { createLogger } = require('./src/core/log');
+const { safeEqualString } = require('./src/core/safe-equal');
 /** @import { connection, request as WebSocketRequest, Message } from 'websocket' */
 /** @import { WsEventParseResult, WsEventParseOkSupported, StartCallResult, MediaPayloadParseResult, StreamTokenVerificationResult, TokenVerificationError, WsEventParseError, MediaPayloadParseError } from './src/core/types' */
 
@@ -670,15 +670,6 @@ function isValidTwilioRequest(req, rawBody) {
   const params = parseFormUrlEncoded(rawBody);
 
   return twilio.validateRequest(config.twilioAuthToken, signature, requestUrl, params);
-}
-
-function safeEqualString(a, b) {
-  const left = Buffer.from(a, 'utf8');
-  const right = Buffer.from(b, 'utf8');
-  const len = Math.max(left.length, right.length);
-  const paddedLeft = Buffer.concat([left, Buffer.alloc(len - left.length)]);
-  const paddedRight = Buffer.concat([right, Buffer.alloc(len - right.length)]);
-  return crypto.timingSafeEqual(paddedLeft, paddedRight);
 }
 
 /**
