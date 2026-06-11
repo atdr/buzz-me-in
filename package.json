@@ -10,7 +10,8 @@
     "format:check": "prettier --check .",
     "check": "node --check server.js homekit.js twilio-api.js src/core/*.js",
     "test": "DOTENV_CONFIG_PATH=/dev/null node --test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepare": "husky"
   },
   "license": "MIT",
   "repository": {
@@ -41,7 +42,18 @@
     "eslint": "^10.4.1",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.6.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.7",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3"
+  },
+  "lint-staged": {
+    "*.{js,cjs}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{md,yml,yaml,json}": [
+      "prettier --write"
+    ]
   }
 }

@@ -23,8 +23,10 @@ messages, e.g. `fix/runtime-robustness`, `docs/refresh-claude-md`.
 `refactor`, `test`, `docs`, `chore`, and `ci`. Scope is typically the module touched
 (`server`, `homekit`, `config`, `core`, `deps`). Keep each commit to one logical
 change so it can be reviewed and reverted independently. Commit messages are linted
-in CI (commitlint with `@commitlint/config-conventional`); run
-`npx commitlint --from origin/main` to check locally.
+in CI (commitlint with `@commitlint/config-conventional`) and locally by a husky
+`commit-msg` hook, which `npm install` sets up automatically. A `pre-commit` hook
+runs lint-staged (ESLint + Prettier on staged files only); the five full quality
+gates stay in CI and remain the documented pre-PR step.
 
 **Pull requests** target `main`, merge in dependency order, and must pass all five
 quality gates (below) locally before being opened. PR titles use the same
