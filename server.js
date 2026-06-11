@@ -3,17 +3,11 @@
 
 const http = require('http');
 const twilio = require('twilio');
-const { PassThrough } = require('stream');
 const WebSocketServer = require('websocket').server;
-const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('./src/core/ws-events-schema');
 
 const config = require('./src/core/config');
 const state = require('./src/core/state');
-const {
-  createRingbackMulawCycle,
-  createRingbackWav,
-  sendMulawAudio,
-} = require('./src/core/mulaw-audio');
+const { createRingbackWav } = require('./src/core/mulaw-audio');
 const {
   buildConnectStreamTwiml,
   STREAM_TOKEN_PARAMETER_NAME,
@@ -22,8 +16,8 @@ const {
 const homekit = require('./homekit');
 const { createLogger } = require('./src/core/log');
 const { safeEqualString } = require('./src/core/safe-equal');
-/** @import { connection, request as WebSocketRequest, Message } from 'websocket' */
-/** @import { WsEventParseResult, WsEventParseOkSupported, StartCallResult, MediaPayloadParseResult, StreamTokenVerificationResult, TokenVerificationError, WsEventParseError, MediaPayloadParseError } from './src/core/types' */
+const { MediaStream } = require('./src/core/media-stream');
+/** @import { request as WebSocketRequest } from 'websocket' */
 
 const HTTP_SERVER_PORT = config.port;
 const STREAM_PATH = '/media';
@@ -240,299 +234,21 @@ mediaws.on('request', function (request) {
   mediaWsLogger.info('Media websocket connection accepted', {
     event: 'media-ws-accepted',
   });
-  new MediaStream(connection);
+  new MediaStream(connection, mediaStreamDeps);
 });
 
-class MediaStream {
-  /**
-   * @param {connection} connection
-   */
-  constructor(connection) {
-    this.connection = connection;
-    this.messageCount = 0;
-    this.currentCallSid = null;
-    this.started = false;
-    this.closed = false;
-    this.hasHomekitSession = false;
-    this.droppingFrames = false;
-    this.ringbackTimer = null;
-    this.ringbackOffset = 0;
-    this.ringbackPayload = createRingbackMulawCycle();
-    this.startTimeout = setTimeout(() => {
-      if (!this.started) {
-        mediaWsLogger.warn('Media websocket start timed out', {
-          event: 'start',
-          reason: 'start-timeout',
-        });
-        this.connection.close();
-      }
-    }, STREAM_START_TIMEOUT_MS);
-    this.startTimeout.unref();
-
-    // Raw mulaw bytes from Twilio flow into this PassThrough only after
-    // HomeKit opens a live view. Pre-live buffering creates catch-up latency.
-    this.mulawStream = new PassThrough({ highWaterMark: 32768 });
-
-    connection.on('message', this.processMessage.bind(this));
-    connection.on('close', this.close.bind(this));
-  }
-
-  /**
-   * @param {Message} message
-   */
-  processMessage(message) {
-    if (message.type !== 'utf8') return;
-    if (message.utf8Data.length > MAX_WS_UTF8_BYTES) {
-      mediaWsLogger.warn('Media websocket message too large', {
-        event: 'media-ws-message-too-large',
-        reason: 'max-message-bytes-exceeded',
-      });
-      this.connection.close();
-      return;
-    }
-
-    let rawData;
-    try {
-      rawData = JSON.parse(message.utf8Data);
-    } catch {
-      mediaWsLogger.warn('Media websocket invalid JSON', {
-        event: 'media-ws-invalid-json',
-        reason: 'json-parse-failed',
-      });
-      this.connection.close();
-      return;
-    }
-
-    const parsedResult = parseTwilioWsEvent(rawData);
-    if (!parsedResult.ok) {
-      const parsedError = /** @type {WsEventParseError} */ (parsedResult);
-      mediaWsLogger.warn('Media websocket invalid event payload', {
-        event: 'media-ws-invalid-event-payload',
-        reason: parsedError.reason,
-      });
-      this.connection.close();
-      return;
-    }
-    if (parsedResult.unsupported) {
-      mediaWsLogger.info('Media websocket unsupported event ignored', {
-        event: 'media-ws-unsupported-event',
-        reason: parsedResult.event,
-      });
-      this.messageCount++;
-      return;
-    }
-    const parsed = /** @type {WsEventParseOkSupported} */ (parsedResult);
-
-    switch (parsed.event) {
-      case 'connected': {
-        mediaWsLogger.info('Media websocket connected event', {
-          event: 'connected',
-        });
-        break;
-      }
-
-      case 'start': {
-        if (this.started) {
-          mediaWsLogger.warn('Duplicate media websocket start event', {
-            event: 'start',
-            reason: 'duplicate-start',
-          });
-          this.connection.close();
-          return;
-        }
-        const start = parsed.data.start;
-        const token = start.customParameters
-          ? start.customParameters[STREAM_TOKEN_PARAMETER_NAME]
-          : undefined;
-        /** @type {StreamTokenVerificationResult} */
-        const verification = verifyAndConsumeStreamToken(typeof token === 'string' ? token : '');
-        if (!verification.ok) {
-          const verificationError = /** @type {TokenVerificationError} */ (verification);
-          mediaWsLogger.warn('Media websocket start rejected', {
-            callSid: start.callSid,
-            event: 'start',
-            reason: verificationError.reason,
-          });
-          this.connection.close();
-          return;
-        }
-        if (verification.callSid && verification.callSid !== start.callSid) {
-          mediaWsLogger.warn('Media websocket start rejected', {
-            callSid: start.callSid,
-            event: 'start',
-            reason: 'callsid-mismatch',
-          });
-          this.connection.close();
-          return;
-        }
-        const started = state.startCall({
-          callSid: start.callSid,
-          streamSid: start.streamSid,
-          wsConnection: this.connection,
-        });
-        if (started.ok === false) {
-          mediaWsLogger.warn('Media websocket start rejected', {
-            callSid: start.callSid,
-            event: 'start',
-            reason: started.reason,
-          });
-          this.connection.close();
-          return;
-        }
-        mediaWsLogger.info('Media websocket start accepted', {
-          callSid: start.callSid,
-          event: 'start',
-          streamSid: start.streamSid,
-        });
-        clearTimeout(this.startTimeout);
-        this.currentCallSid = start.callSid;
-        this.started = true;
-        activeMediaStreamsByCallSid.set(start.callSid, this);
-        const reboundSessionCount = homekit.setMulawPassthrough(this.mulawStream);
-        if (reboundSessionCount > 0) {
-          this.markHomekitSessionStarted();
-        } else {
-          homekit.triggerDoorbell();
-          this.startRingback();
-        }
-        break;
-      }
-
-      case 'media': {
-        if (!this.started || !this.currentCallSid) {
-          mediaWsLogger.warn('Media frame before start event', {
-            event: 'media',
-            reason: 'media-before-start',
-          });
-          this.connection.close();
-          return;
-        }
-        const mediaPayload = parseTwilioMediaPayload(
-          parsed.data.media.payload,
-          config.twilioMediaPayloadMaxBytes
-        );
-        if (!mediaPayload.ok) {
-          const mediaPayloadError = /** @type {MediaPayloadParseError} */ (mediaPayload);
-          mediaWsLogger.warn('Media payload rejected', {
-            callSid: this.currentCallSid,
-            event: 'media',
-            reason: mediaPayloadError.reason,
-          });
-          this.connection.close();
-          return;
-        }
-        if (this.hasHomekitSession) {
-          // Only forward live-view audio. Buffering pre-answer audio adds seconds
-          // of catch-up latency when HomeKit finally starts ffmpeg.
-          // Drop frames while the buffer needs draining: for live audio,
-          // unbounded queueing behind a stalled ffmpeg is worse than a gap.
-          if (this.mulawStream.writableNeedDrain) {
-            if (!this.droppingFrames) {
-              this.droppingFrames = true;
-              mediaWsLogger.warn('Dropping media frames; mulaw buffer is full', {
-                callSid: this.currentCallSid,
-                event: 'media-frames-dropped',
-                reason: 'mulaw-buffer-full',
-              });
-            }
-          } else {
-            if (this.droppingFrames) {
-              this.droppingFrames = false;
-              mediaWsLogger.info('Resumed forwarding media frames', {
-                callSid: this.currentCallSid,
-                event: 'media-frames-resumed',
-              });
-            }
-            this.mulawStream.write(mediaPayload.decoded);
-          }
-        }
-        state.markActivity(this.currentCallSid, 'twilio-media');
-        break;
-      }
-
-      case 'stop': {
-        mediaWsLogger.info('Media websocket stop event', {
-          callSid: this.currentCallSid || undefined,
-          event: 'stop',
-        });
-        this._teardown('twilio-stop');
-        break;
-      }
-    }
-
-    this.messageCount++;
-  }
-
-  close() {
-    this._teardown('ws-close');
-  }
-
-  startRingback() {
-    if (this.ringbackTimer || !this.currentCallSid) return;
-    this.ringbackTimer = setInterval(() => {
-      if (this.closed || !this.currentCallSid) {
-        this.stopRingback('stream-ended');
-        return;
-      }
-      this.sendRingbackFrame();
-    }, 20);
-    if (typeof this.ringbackTimer.unref === 'function') this.ringbackTimer.unref();
-  }
-
-  stopRingback(reason) {
-    if (!this.ringbackTimer) return;
-    clearInterval(this.ringbackTimer);
-    this.ringbackTimer = null;
-    mediaWsLogger.info('Ringback media stopped', {
-      callSid: this.currentCallSid || undefined,
-      event: 'ringback-stopped',
-      reason,
-    });
-  }
-
-  markHomekitSessionStarted() {
-    this.hasHomekitSession = true;
-    this.stopRingback('homekit-session-started');
-  }
-
-  sendRingbackFrame() {
-    if (!this.currentCallSid || !this.started || this.closed) return;
-
-    const chunkSize = 160; // 20 ms of 8 kHz mu-law audio.
-    const chunk = Buffer.alloc(chunkSize);
-    for (let i = 0; i < chunkSize; i++) {
-      chunk[i] = this.ringbackPayload[this.ringbackOffset];
-      this.ringbackOffset = (this.ringbackOffset + 1) % this.ringbackPayload.length;
-    }
-
-    const activeCall = state.getActiveCall();
-    if (!activeCall || activeCall.wsConnection !== this.connection || !activeCall.streamSid) return;
-    sendMulawAudio(activeCall, chunk);
-  }
-
-  _teardown(reason) {
-    if (this.closed) return;
-    this.closed = true;
-    this.stopRingback(reason);
-    mediaWsLogger.info('Media websocket session ended', {
-      callSid: this.currentCallSid || undefined,
-      event: 'session-ended',
-      reason,
-      messageCount: this.messageCount,
-    });
-    clearTimeout(this.startTimeout);
-    // Guard: close() can fire without a prior 'stop' event (e.g. network drop).
-    homekit.clearMulawPassthrough(this.mulawStream);
-    this.mulawStream.destroy();
-    const { cleared } = state.clearIfConnection(this.connection, reason);
-    if (this.currentCallSid && activeMediaStreamsByCallSid.get(this.currentCallSid) === this) {
-      activeMediaStreamsByCallSid.delete(this.currentCallSid);
-    }
-    if (cleared) {
-      homekit.endHapSession();
-    }
-  }
-}
+/** @type {import('./src/core/media-stream').MediaStreamDeps} */
+const mediaStreamDeps = {
+  logger: mediaWsLogger,
+  state,
+  homekit,
+  registry: activeMediaStreamsByCallSid,
+  verifyStreamToken: verifyAndConsumeStreamToken,
+  tokenParameterName: STREAM_TOKEN_PARAMETER_NAME,
+  startTimeoutMs: STREAM_START_TIMEOUT_MS,
+  maxUtf8Bytes: MAX_WS_UTF8_BYTES,
+  mediaPayloadMaxBytes: config.twilioMediaPayloadMaxBytes,
+};
 
 /**
  * @param {import('http').IncomingMessage} req

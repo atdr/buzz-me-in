@@ -13,6 +13,8 @@ This document focuses on stable architecture concepts. It intentionally avoids t
   - ffmpeg process orchestration for inbound/outbound audio paths
 - `twilio-api.js`
   - Twilio REST helper for hanging up a call
+- `src/core/media-stream.js`
+  - per-connection Twilio media stream protocol handling (start/media/stop, token check, ringback, teardown) with injected state/HomeKit/logging dependencies
 - `src/core/state.js`
   - in-memory call session management and stale-session reaping
 - `src/core/stream-auth.js`
