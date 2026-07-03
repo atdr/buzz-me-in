@@ -6,6 +6,9 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
 # Cancel superseded runs when a PR branch is force-pushed or updated.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
