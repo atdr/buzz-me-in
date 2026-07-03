@@ -656,15 +656,22 @@ accessory.publish({
   advertiser: hap.MDNSAdvertiser.AVAHI,
 });
 
-const hapPincode = config.hapPincode;
 logger.info('Accessory published', {
   event: 'accessory-published',
-  hapPincode,
 });
-logger.info('Accessory QR setup URI generated', {
-  event: 'accessory-qr-setup',
-});
-qrcode.generate(accessory.setupURI(), { small: true });
+// The setup QR encodes the pairing pincode, so only print it on an
+// interactive terminal — never into journald/log files.
+if (process.stdout.isTTY) {
+  logger.info('Accessory QR setup URI generated', {
+    event: 'accessory-qr-setup',
+  });
+  qrcode.generate(accessory.setupURI(), { small: true });
+} else {
+  logger.info('Pairing QR suppressed on non-interactive stdout; pair with HAP_PINCODE from .env', {
+    event: 'accessory-qr-suppressed',
+    reason: 'stdout-not-tty',
+  });
+}
 
 // Kick off snapshot generation asynchronously (non-blocking)
 initSnapshot().then(() =>
