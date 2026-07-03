@@ -72,9 +72,23 @@ function removeReturnAudioSdp(sdpPath) {
   } catch {}
 }
 
+/**
+ * Best-effort removal of the private SDP directory itself, called on graceful
+ * shutdown so the intercom-* dir does not linger. Resets the cached path so a
+ * later write (should one occur) recreates a fresh private directory.
+ */
+function removeSdpDir() {
+  if (!sdpDir) return;
+  try {
+    fs.rmSync(sdpDir, { recursive: true, force: true });
+  } catch {}
+  sdpDir = null;
+}
+
 module.exports = {
   buildReturnAudioSdp,
   ensureSdpDir,
   removeReturnAudioSdp,
+  removeSdpDir,
   writeReturnAudioSdp,
 };

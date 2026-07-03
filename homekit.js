@@ -26,7 +26,11 @@ const { spawn } = require('child_process');
 const config = require('./src/core/config');
 const state = require('./src/core/state');
 const { sendDtmfSequence, sendMulawAudio } = require('./src/core/mulaw-audio');
-const { removeReturnAudioSdp, writeReturnAudioSdp } = require('./src/core/return-audio-sdp');
+const {
+  removeReturnAudioSdp,
+  removeSdpDir,
+  writeReturnAudioSdp,
+} = require('./src/core/return-audio-sdp');
 const { createLogger } = require('./src/core/log');
 const { hangUpCall } = require('./twilio-api');
 
@@ -764,6 +768,7 @@ function setOnHapSessionStarted(handler) {
  */
 function shutdown() {
   endHapSession();
+  removeSdpDir();
   accessory.destroy().catch((error) => {
     logger.error('Failed to destroy HAP accessory during shutdown', {
       event: 'accessory-destroy-failed',

@@ -8,6 +8,7 @@ const {
   buildReturnAudioSdp,
   ensureSdpDir,
   removeReturnAudioSdp,
+  removeSdpDir,
   writeReturnAudioSdp,
 } = require('../src/core/return-audio-sdp.js');
 
@@ -18,6 +19,8 @@ const SDP_INPUT = {
 };
 
 test('return-audio SDP files', async (t) => {
+  t.after(() => removeSdpDir());
+
   await t.test('SDP body carries the negotiated port, payload type, and SRTP key', () => {
     const sdp = buildReturnAudioSdp(SDP_INPUT);
     assert.match(sdp, /m=audio 40000 RTP\/SAVP 110/);
@@ -66,5 +69,17 @@ test('return-audio SDP files', async (t) => {
     removeReturnAudioSdp(sdpPath);
     assert.equal(fs.existsSync(sdpPath), false);
     assert.doesNotThrow(() => removeReturnAudioSdp(sdpPath));
+  });
+
+  await t.test('removeSdpDir removes the whole private directory', () => {
+    const sdpPath = writeReturnAudioSdp({ sessionID: 'session-dir-cleanup', ...SDP_INPUT });
+    const dir = path.dirname(sdpPath);
+    removeSdpDir();
+    assert.equal(fs.existsSync(dir), false);
+    // A later write recreates a fresh private directory.
+    const next = writeReturnAudioSdp({ sessionID: 'session-after-cleanup', ...SDP_INPUT });
+    assert.match(path.basename(path.dirname(next)), /^intercom-/);
+    assert.notEqual(path.dirname(next), dir);
+    removeReturnAudioSdp(next);
   });
 });
