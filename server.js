@@ -47,9 +47,17 @@ const RINGTONE_WAV = createRingbackWav();
 
 const wsserver = http.createServer(handleRequest);
 
+// Enforce message bounds in the websocket library itself so oversized
+// frames are rejected before assembly, instead of relying only on the
+// per-message check in MediaStream (library defaults allow 1 MiB).
+const WS_LIBRARY_MAX_BYTES = Math.max(16 * 1024, MAX_WS_UTF8_BYTES * 4);
+const MAX_CONCURRENT_WS_CONNECTIONS = 20;
+
 const mediaws = new WebSocketServer({
   httpServer: wsserver,
   autoAcceptConnections: false,
+  maxReceivedFrameSize: WS_LIBRARY_MAX_BYTES,
+  maxReceivedMessageSize: WS_LIBRARY_MAX_BYTES,
 });
 
 state.setOnSessionStale((session) => {
@@ -225,6 +233,16 @@ mediaws.on('request', function (request) {
   const path = wsRequest.resourceURL && wsRequest.resourceURL.pathname;
   if (path !== STREAM_PATH) {
     wsRequest.reject(404, 'Not found');
+    return;
+  }
+  // Only one Twilio call is ever active; anything beyond a small headroom
+  // of concurrent sockets is a resource-exhaustion attempt, not traffic.
+  if (activeWsConnections.size >= MAX_CONCURRENT_WS_CONNECTIONS) {
+    mediaWsLogger.warn('Media websocket connection rejected', {
+      event: 'media-ws-rejected',
+      reason: 'too-many-connections',
+    });
+    wsRequest.reject(503, 'Too many connections');
     return;
   }
 
