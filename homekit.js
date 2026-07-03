@@ -419,66 +419,86 @@ function _startSession(sessionID, s, request, callback) {
   // Use the negotiated Opus payload type from HomeKit's START request; older
   // versions assumed 110, which breaks when the controller chooses otherwise.
   // -------------------------------------------------------------------------
-  const sdpPath = writeReturnAudioSdp({
-    sessionID,
-    port: s.returnAudioPort,
-    payloadType: audio.pt,
-    srtpParams: srtpParams(s.returnAudioKey, s.returnAudioSalt),
-  });
-
-  const ffOut = spawn('ffmpeg', [
-    '-y',
-    '-loglevel',
-    'warning',
-    '-protocol_whitelist',
-    'file,crypto,udp,rtp',
-    '-f',
-    'sdp',
-    '-i',
-    sdpPath,
-    // Decode Opus → resample → encode mulaw/8kHz
-    '-ar',
-    '8000',
-    '-ac',
-    '1',
-    '-c:a',
-    'pcm_mulaw',
-    '-f',
-    'mulaw',
-    '-fflags',
-    '+nobuffer',
-    '-flush_packets',
-    '1',
-    'pipe:1',
-  ]);
-
-  ffOut.stderr.on('data', (d) => {
-    logger.warn('Outbound ffmpeg stderr', {
-      event: 'ffout-stderr',
-      reason: 'ffmpeg-stderr',
-      detail: d.toString('utf8').trim(),
-      sessionId: sessionID,
+  // ffIn is already spawned above; from here on, any throw (SDP write failure,
+  // ffOut spawn) must tear it down and fail the START, otherwise the inbound
+  // ffmpeg leaks and HomeKit's callback never fires.
+  let sdpPath;
+  let ffOut;
+  try {
+    sdpPath = writeReturnAudioSdp({
+      sessionID,
+      port: s.returnAudioPort,
+      payloadType: audio.pt,
+      srtpParams: srtpParams(s.returnAudioKey, s.returnAudioSalt),
     });
-  });
-  ffOut.on('close', (code) => {
-    logger.info('Outbound ffmpeg exited', {
-      event: 'ffout-exit',
-      reason: code === 0 ? 'clean-exit' : 'nonzero-exit',
-      exitCode: code,
-      sessionId: sessionID,
+
+    ffOut = spawn('ffmpeg', [
+      '-y',
+      '-loglevel',
+      'warning',
+      '-protocol_whitelist',
+      'file,crypto,udp,rtp',
+      '-f',
+      'sdp',
+      '-i',
+      sdpPath,
+      // Decode Opus → resample → encode mulaw/8kHz
+      '-ar',
+      '8000',
+      '-ac',
+      '1',
+      '-c:a',
+      'pcm_mulaw',
+      '-f',
+      'mulaw',
+      '-fflags',
+      '+nobuffer',
+      '-flush_packets',
+      '1',
+      'pipe:1',
+    ]);
+
+    ffOut.stderr.on('data', (d) => {
+      logger.warn('Outbound ffmpeg stderr', {
+        event: 'ffout-stderr',
+        reason: 'ffmpeg-stderr',
+        detail: d.toString('utf8').trim(),
+        sessionId: sessionID,
+      });
     });
-  });
+    ffOut.on('close', (code) => {
+      logger.info('Outbound ffmpeg exited', {
+        event: 'ffout-exit',
+        reason: code === 0 ? 'clean-exit' : 'nonzero-exit',
+        exitCode: code,
+        sessionId: sessionID,
+      });
+    });
 
-  // Forward each decoded mulaw chunk to Twilio as a media event.
-  ffOut.stdout.on('data', (chunk) => {
-    const activeCall = getActiveCall();
-    if (!activeCall || !activeCall.wsConnection || !activeCall.streamSid) return;
-    sendMulawAudio(activeCall, chunk);
-    state.markActivity(activeCall.callSid, 'homekit-outbound-media');
-  });
+    // Forward each decoded mulaw chunk to Twilio as a media event.
+    ffOut.stdout.on('data', (chunk) => {
+      const activeCall = getActiveCall();
+      if (!activeCall || !activeCall.wsConnection || !activeCall.streamSid) return;
+      sendMulawAudio(activeCall, chunk);
+      state.markActivity(activeCall.callSid, 'homekit-outbound-media');
+    });
 
-  activeSessions.set(sessionID, { ...s, ffIn, ffOut, sdpPath });
-  attachMulawStreamToSession(sessionID, currentMulawStream);
+    activeSessions.set(sessionID, { ...s, ffIn, ffOut, sdpPath });
+    attachMulawStreamToSession(sessionID, currentMulawStream);
+  } catch (error) {
+    logger.error('Failed to start HomeKit stream session', {
+      event: 'stream-start-failed',
+      reason: 'session-setup-threw',
+      sessionId: sessionID,
+      error,
+    });
+    activeSessions.delete(sessionID);
+    killFfmpeg(ffIn);
+    if (ffOut) killFfmpeg(ffOut);
+    if (sdpPath) removeReturnAudioSdp(sdpPath);
+    callback(error);
+    return;
+  }
 
   const activeCall = getActiveCall();
   if (activeCall && onHapSessionStarted) {

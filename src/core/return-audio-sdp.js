@@ -44,9 +44,10 @@ function buildReturnAudioSdp({ port, payloadType, srtpParams }) {
 /**
  * Write the SDP for a HAP session into the private directory.
  *
- * The filename is derived from the (sanitized) HAP session ID; `wx` refuses
- * to follow or overwrite any pre-existing file, so a duplicate session ID or
- * planted file fails loudly instead of being silently clobbered.
+ * The 0700 directory (owned by this process) is what prevents another local
+ * user from reading the SRTP key or planting a symlink at the target path, so
+ * an overwrite (`w`) is safe: a re-issued START for the same session simply
+ * refreshes the file rather than throwing, keeping _startSession idempotent.
  *
  * @param {{ sessionID: string, port: number, payloadType: number, srtpParams: string }} input
  * @returns {string} absolute path of the written SDP file
@@ -56,7 +57,7 @@ function writeReturnAudioSdp({ sessionID, port, payloadType, srtpParams }) {
   const sdpPath = path.join(ensureSdpDir(), `return_${safeName}.sdp`);
   fs.writeFileSync(sdpPath, buildReturnAudioSdp({ port, payloadType, srtpParams }), {
     mode: 0o600,
-    flag: 'wx',
+    flag: 'w',
   });
   return sdpPath;
 }

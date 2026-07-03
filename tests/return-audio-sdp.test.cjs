@@ -42,11 +42,16 @@ test('return-audio SDP files', async (t) => {
     removeReturnAudioSdp(sdpPath);
   });
 
-  await t.test('refuses to overwrite an existing file (wx semantics)', () => {
-    const input = { sessionID: 'session-duplicate', ...SDP_INPUT };
-    const sdpPath = writeReturnAudioSdp(input);
-    assert.throws(() => writeReturnAudioSdp(input), { code: 'EEXIST' });
-    removeReturnAudioSdp(sdpPath);
+  await t.test('a re-issued write for the same session overwrites idempotently', () => {
+    const input = { sessionID: 'session-idempotent', ...SDP_INPUT };
+    const first = writeReturnAudioSdp(input);
+    let second;
+    assert.doesNotThrow(() => {
+      second = writeReturnAudioSdp({ ...input, port: 40001 });
+    });
+    assert.equal(first, second);
+    assert.match(fs.readFileSync(second, 'utf8'), /m=audio 40001 /);
+    removeReturnAudioSdp(second);
   });
 
   await t.test('sanitizes hostile session IDs into the private directory', () => {
