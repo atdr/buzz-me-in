@@ -123,6 +123,8 @@ module.exports = {
   hapPort: parsePort('HAP_PORT', '47129'),
   callSessionStaleSec: parsePositiveInt('CALL_SESSION_STALE_SEC', '900'),
   wsMaxMessageBytes: parsePositiveInt('WS_MAX_MESSAGE_BYTES', '4096'),
+  wsMaxConnections: parsePositiveInt('WS_MAX_CONNECTIONS', '64'),
+  streamStartTimeoutMs: parsePositiveInt('STREAM_START_TIMEOUT_MS', '3000'),
   twilioMediaPayloadMaxBytes: parsePositiveInt('TWILIO_MEDIA_PAYLOAD_MAX_BYTES', '512'),
   shutdownGraceMs: parsePositiveInt('SHUTDOWN_GRACE_MS', '10000'),
   streamAuthSecret,

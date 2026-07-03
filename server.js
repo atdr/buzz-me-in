@@ -22,7 +22,7 @@ const { MediaStream } = require('./src/core/media-stream');
 
 const HTTP_SERVER_PORT = config.port;
 const STREAM_PATH = '/media';
-const STREAM_START_TIMEOUT_MS = 5000;
+const STREAM_START_TIMEOUT_MS = config.streamStartTimeoutMs;
 const STATUS_BEARER_PREFIX = 'Bearer ';
 const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
 const SHUTDOWN_GRACE_MS = config.shutdownGraceMs;
@@ -51,8 +51,8 @@ const wsserver = http.createServer(handleRequest);
 // Enforce message bounds in the websocket library itself so oversized
 // frames are rejected before assembly, instead of relying only on the
 // per-message check in MediaStream (library defaults allow 1 MiB).
-const WS_LIBRARY_MAX_BYTES = Math.max(16 * 1024, MAX_WS_UTF8_BYTES * 4);
-const MAX_CONCURRENT_WS_CONNECTIONS = 20;
+const WS_LIBRARY_MAX_BYTES = MAX_WS_UTF8_BYTES * 4;
+const MAX_CONCURRENT_WS_CONNECTIONS = config.wsMaxConnections;
 
 const mediaws = new WebSocketServer({
   httpServer: wsserver,
@@ -236,8 +236,13 @@ mediaws.on('request', function (request) {
     wsRequest.reject(404, 'Not found');
     return;
   }
-  // Only one Twilio call is ever active; anything beyond a small headroom
-  // of concurrent sockets is a resource-exhaustion attempt, not traffic.
+  // Memory backstop only: cap total sockets so a connection flood can't grow
+  // unbounded. Only one Twilio call is ever authenticated at a time, and each
+  // un-started socket is dropped after config.streamStartTimeoutMs, so this is
+  // deliberately generous. Volumetric / per-source rate-limiting is delegated
+  // to the Cloudflare edge — the tunnel makes every socket look like localhost,
+  // so in-process source accounting is both unreliable and trivially bypassed
+  // by IP rotation.
   if (activeWsConnections.size >= MAX_CONCURRENT_WS_CONNECTIONS) {
     mediaWsLogger.warn('Media websocket connection rejected', {
       event: 'media-ws-rejected',

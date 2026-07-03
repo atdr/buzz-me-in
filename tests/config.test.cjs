@@ -23,9 +23,25 @@ test('config loads valid configuration and defaults', () => {
     assert.equal(config.twilioWebhookBaseUrl, 'https://intercom.example.com');
     assert.equal(config.callSessionStaleSec, 900);
     assert.equal(config.wsMaxMessageBytes, 4096);
+    assert.equal(config.wsMaxConnections, 64);
+    assert.equal(config.streamStartTimeoutMs, 3000);
     assert.equal(config.twilioMediaPayloadMaxBytes, 512);
     assert.equal(config.shutdownGraceMs, 10000);
     assert.equal(config.twilioUnlockDigits, 'w9w');
+  });
+});
+
+test('config honors overridden WS tuning values', () => {
+  withEnv({ ...BASE_ENV, WS_MAX_CONNECTIONS: '8', STREAM_START_TIMEOUT_MS: '1500' }, () => {
+    const config = freshRequire('../../src/core/config.js');
+    assert.equal(config.wsMaxConnections, 8);
+    assert.equal(config.streamStartTimeoutMs, 1500);
+  });
+});
+
+test('config rejects non-positive WS connection cap', () => {
+  withEnv({ ...BASE_ENV, WS_MAX_CONNECTIONS: '0' }, () => {
+    assert.throws(() => freshRequire('../../src/core/config.js'), /WS_MAX_CONNECTIONS/);
   });
 });
 
