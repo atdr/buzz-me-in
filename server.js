@@ -10,10 +10,10 @@ const state = require('./src/core/state');
 const { createRingbackWav } = require('./src/core/mulaw-audio');
 const {
   buildConnectStreamTwiml,
-  normalizeCallSid,
   STREAM_TOKEN_PARAMETER_NAME,
   verifyAndConsumeStreamToken,
 } = require('./src/core/stream-auth');
+const { normalizeCallSid } = require('./src/core/twilio-ids');
 const homekit = require('./homekit');
 const { createLogger } = require('./src/core/log');
 const { safeEqualString } = require('./src/core/safe-equal');
