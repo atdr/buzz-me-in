@@ -16,6 +16,17 @@ EnvironmentFile=/home/pi/intercom/.env
 
 ExecStart=/usr/bin/node server.js
 
+# Sandboxing — the service only needs its working directory, the network,
+# and a private /tmp (SDP files with SRTP keys live there).
+# ProtectHome is intentionally NOT set: WorkingDirectory and the HAP
+# pairing persist data live under /home/pi/intercom.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+
 # Restart on any non-zero exit (crash, OOM, etc.)
 # Do NOT restart on clean exit (code 0) to allow intentional shutdowns.
 Restart=on-failure
