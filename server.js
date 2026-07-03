@@ -10,6 +10,7 @@ const state = require('./src/core/state');
 const { createRingbackWav } = require('./src/core/mulaw-audio');
 const {
   buildConnectStreamTwiml,
+  normalizeCallSid,
   STREAM_TOKEN_PARAMETER_NAME,
   verifyAndConsumeStreamToken,
 } = require('./src/core/stream-auth');
@@ -163,11 +164,11 @@ async function handleTwimlRequest(req, res) {
   }
 
   const formData = parseFormUrlEncoded(rawBody);
-  const callSid = typeof formData.CallSid === 'string' ? formData.CallSid : null;
+  const callSid = normalizeCallSid(formData.CallSid);
   const body = buildTwiml(callSid);
   twimlLogger.info('TwiML response generated', {
     event: 'twiml-response',
-    callSid: typeof formData.CallSid === 'string' ? formData.CallSid : undefined,
+    callSid: callSid || undefined,
   });
   res.writeHead(200, {
     'Content-Type': 'text/xml',

@@ -7,7 +7,21 @@ const { safeEqualString } = require('./safe-equal');
 const STREAM_TOKEN_PARAMETER_NAME = 'token';
 const STREAM_TOKEN_VERSION = 1;
 const STREAM_PATH = '/media';
+const CALL_SID_REGEX = /^CA[0-9a-f]{32}$/;
 const pendingStreamNonces = new Map();
+
+/**
+ * Normalize an untrusted CallSid value (e.g. from webhook form data).
+ * Twilio always sends CallSid as "CA" + 32 lowercase hex chars; anything
+ * else (wrong shape, duplicate form keys parsed as arrays, non-strings)
+ * is treated as absent so it never reaches logs, tokens, or REST URLs.
+ *
+ * @param {unknown} value
+ * @returns {string | null}
+ */
+function normalizeCallSid(value) {
+  return typeof value === 'string' && CALL_SID_REGEX.test(value) ? value : null;
+}
 
 function toBase64Url(buffer) {
   return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
@@ -125,6 +139,7 @@ function escapeXmlAttribute(value) {
 module.exports = {
   buildConnectStreamTwiml,
   issueStreamToken,
+  normalizeCallSid,
   STREAM_TOKEN_PARAMETER_NAME,
   verifyAndConsumeStreamToken,
 };

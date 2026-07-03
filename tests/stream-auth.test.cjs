@@ -148,6 +148,39 @@ test('stream token verification', async (t) => {
   });
 });
 
+test('normalizeCallSid', async (t) => {
+  await t.test('accepts a canonical Twilio CallSid', () => {
+    withEnv(BASE_ENV, () => {
+      const { normalizeCallSid } = loadStreamAuth();
+      const sid = 'CA' + '0123456789abcdef'.repeat(2);
+      assert.equal(normalizeCallSid(sid), sid);
+    });
+  });
+
+  await t.test('rejects malformed values as null', () => {
+    withEnv(BASE_ENV, () => {
+      const { normalizeCallSid } = loadStreamAuth();
+      const hex32 = '0123456789abcdef'.repeat(2);
+      assert.equal(normalizeCallSid('CA' + hex32.toUpperCase()), null); // uppercase hex
+      assert.equal(normalizeCallSid('SM' + hex32), null); // wrong prefix
+      assert.equal(normalizeCallSid('CA' + hex32.slice(1)), null); // too short
+      assert.equal(normalizeCallSid('CA' + hex32 + '0'), null); // too long
+      assert.equal(normalizeCallSid(''), null);
+      assert.equal(normalizeCallSid(null), null);
+      assert.equal(normalizeCallSid(undefined), null);
+      assert.equal(normalizeCallSid(['CA' + hex32, 'CA' + hex32]), null); // duplicate form keys
+    });
+  });
+
+  await t.test('token issued from a normalized-null CallSid carries callSid null', () => {
+    withEnv(BASE_ENV, () => {
+      const auth = loadStreamAuth();
+      const token = auth.issueStreamToken(auth.normalizeCallSid('not-a-callsid'));
+      assert.deepEqual(auth.verifyAndConsumeStreamToken(token), { ok: true, callSid: null });
+    });
+  });
+});
+
 test('connect-stream TwiML builder', async (t) => {
   await t.test('embeds the wss URL and a verifiable one-time token', () => {
     withEnv(BASE_ENV, () => {
