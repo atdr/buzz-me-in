@@ -19,7 +19,6 @@
 const hap = require('hap-nodejs');
 const qrcode = require('qrcode-terminal');
 const crypto = require('crypto');
-const fs = require('fs');
 const net = require('net');
 const os = require('os');
 const { spawn } = require('child_process');
@@ -27,6 +26,7 @@ const { spawn } = require('child_process');
 const config = require('./src/core/config');
 const state = require('./src/core/state');
 const { sendDtmfSequence, sendMulawAudio } = require('./src/core/mulaw-audio');
+const { removeReturnAudioSdp, writeReturnAudioSdp } = require('./src/core/return-audio-sdp');
 const { createLogger } = require('./src/core/log');
 const { hangUpCall } = require('./twilio-api');
 
@@ -419,25 +419,12 @@ function _startSession(sessionID, s, request, callback) {
   // Use the negotiated Opus payload type from HomeKit's START request; older
   // versions assumed 110, which breaks when the controller chooses otherwise.
   // -------------------------------------------------------------------------
-  const returnParams = srtpParams(s.returnAudioKey, s.returnAudioSalt);
-  const sdpPath = `/tmp/intercom_return_${sessionID}.sdp`;
-
-  fs.writeFileSync(
-    sdpPath,
-    [
-      'v=0',
-      'o=- 0 0 IN IP4 127.0.0.1',
-      's=Return Audio',
-      'c=IN IP4 127.0.0.1',
-      't=0 0',
-      `m=audio ${s.returnAudioPort} RTP/SAVP ${audio.pt}`,
-      `a=rtpmap:${audio.pt} opus/48000/2`,
-      `a=fmtp:${audio.pt} minptime=10;useinbandfec=1`,
-      `a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:${returnParams}`,
-      'a=recvonly',
-      '',
-    ].join('\r\n')
-  );
+  const sdpPath = writeReturnAudioSdp({
+    sessionID,
+    port: s.returnAudioPort,
+    payloadType: audio.pt,
+    srtpParams: srtpParams(s.returnAudioKey, s.returnAudioSalt),
+  });
 
   const ffOut = spawn('ffmpeg', [
     '-y',
@@ -537,11 +524,7 @@ function _stopSession(sessionID, hangUp) {
     killFfmpeg(s.ffIn);
   }
   if (s.ffOut) killFfmpeg(s.ffOut);
-  if (s.sdpPath) {
-    try {
-      fs.unlinkSync(s.sdpPath);
-    } catch {}
-  }
+  if (s.sdpPath) removeReturnAudioSdp(s.sdpPath);
 
   const activeCall = getActiveCall();
   if (hangUp && activeCall) {
