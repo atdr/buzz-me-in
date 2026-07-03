@@ -11,6 +11,9 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
+// Created lazily (not eagerly at module load) so that merely importing this
+// module — e.g. in tests that never write an SDP — has no filesystem side
+// effect, and so removeSdpDir() can reset it for recreation.
 let sdpDir = null;
 
 /** Lazily create the private per-process SDP directory (mkdtemp → 0700). */
@@ -86,8 +89,6 @@ function removeSdpDir() {
 }
 
 module.exports = {
-  buildReturnAudioSdp,
-  ensureSdpDir,
   removeReturnAudioSdp,
   removeSdpDir,
   writeReturnAudioSdp,

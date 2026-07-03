@@ -5,8 +5,6 @@ const os = require('node:os');
 const path = require('node:path');
 
 const {
-  buildReturnAudioSdp,
-  ensureSdpDir,
   removeReturnAudioSdp,
   removeSdpDir,
   writeReturnAudioSdp,
@@ -21,20 +19,22 @@ const SDP_INPUT = {
 test('return-audio SDP files', async (t) => {
   t.after(() => removeSdpDir());
 
-  await t.test('SDP body carries the negotiated port, payload type, and SRTP key', () => {
-    const sdp = buildReturnAudioSdp(SDP_INPUT);
+  await t.test('written SDP body carries the port, payload type, and SRTP key', () => {
+    const sdpPath = writeReturnAudioSdp({ sessionID: 'session-body', ...SDP_INPUT });
+    const sdp = fs.readFileSync(sdpPath, 'utf8');
     assert.match(sdp, /m=audio 40000 RTP\/SAVP 110/);
     assert.match(sdp, /a=rtpmap:110 opus\/48000\/2/);
     assert.match(sdp, /a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:c2VjcmV0LWtleS1hbmQtc2FsdA==/);
     assert.match(sdp, /a=recvonly/);
+    removeReturnAudioSdp(sdpPath);
   });
 
   await t.test('writes into a process-private directory, not bare tmp', () => {
     const sdpPath = writeReturnAudioSdp({ sessionID: 'session-private-dir', ...SDP_INPUT });
     const dir = path.dirname(sdpPath);
     assert.notEqual(dir, os.tmpdir());
+    assert.equal(path.dirname(dir), os.tmpdir());
     assert.match(path.basename(dir), /^intercom-/);
-    assert.equal(dir, ensureSdpDir());
     removeReturnAudioSdp(sdpPath);
   });
 
@@ -59,7 +59,7 @@ test('return-audio SDP files', async (t) => {
 
   await t.test('sanitizes hostile session IDs into the private directory', () => {
     const sdpPath = writeReturnAudioSdp({ sessionID: '../../etc/passwd', ...SDP_INPUT });
-    assert.equal(path.dirname(sdpPath), ensureSdpDir());
+    assert.match(path.basename(path.dirname(sdpPath)), /^intercom-/);
     assert.match(path.basename(sdpPath), /^return_[A-Za-z0-9_-]+\.sdp$/);
     removeReturnAudioSdp(sdpPath);
   });
