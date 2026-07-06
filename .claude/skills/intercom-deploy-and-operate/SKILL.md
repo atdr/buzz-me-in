@@ -60,7 +60,8 @@ Notes:
 
 - **Restarting drops the in-memory nonce store** — a caller who dialed during the restart window gets one failed connection (token verification fails). Check `/status` before restarting.
 - **Stale sessions self-heal**: a dead call's slot is reaped after `CALL_SESSION_STALE_SEC` (default 900 s). Restarting clears it immediately.
-- HAP pairing data persists (HAP-NodeJS storage) — restarts do NOT require re-pairing. Changing `HAP_USERNAME` effectively creates a new accessory and DOES require re-pairing.
+- **HAP pairing data lives in `persist/` under the working directory** (`/home/pi/intercom/persist` — HAP-NodeJS stores it via node-persist; the directory is listed in `.prettierignore`). Restarts do NOT require re-pairing. Changing `HAP_USERNAME` effectively creates a new accessory and DOES require re-pairing.
+- **Never run the deploy rsync with `--delete`** unless you also exclude `persist/` and `.env` — `--delete` would wipe the pairing state (the documented command has no `--delete` and is safe as written). Copy `persist/` somewhere safe before any invasive work on the Pi.
 
 ## Outage discrimination (fastest split first)
 
@@ -88,3 +89,4 @@ Written 2026-07-04 against commit `d377b02`. Re-verify:
 - Deploy loop: README "Deploying updates" section (doc of record)
 - Probe endpoints and auth: `grep -n "GET_ROUTES.set" server.js`
 - Stale/restart behaviour: `grep -n "CALL_SESSION_STALE_SEC" .env.example` · `grep -n "process.exit" server.js`
+- Pairing storage location: `ls ~/intercom/persist` on the Pi (should contain `AccessoryInfo.*.json` after pairing)

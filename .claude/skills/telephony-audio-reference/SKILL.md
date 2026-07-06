@@ -18,13 +18,13 @@ description: Domain theory pack for the audio path as it applies to this repo �
 
 Twilio connects to `wss://{TUNNEL_HOSTNAME}/media` after receiving `<Connect><Stream>` TwiML. Every frame is a JSON envelope with an `event` field. Parsing/validation: `src/core/ws-events-schema.js` (Zod).
 
-| Event         | Direction | Contents (as consumed here)                                                                                               |
-| ------------- | --------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `connected`   | inbound   | Handshake; logged, no action.                                                                                             |
-| `start`       | inbound   | `start.callSid`, `start.streamSid`, `start.customParameters` (carries the auth `token` from the TwiML `<Parameter>`).     |
-| `media`       | inbound   | `media.payload` = base64 mu-law chunk. Decoded size capped at `TWILIO_MEDIA_PAYLOAD_MAX_BYTES` (default 512).             |
-| `stop`        | inbound   | Call ended on Twilio's side; triggers teardown.                                                                           |
-| anything else | inbound   | Ignored and logged as `media-ws-unsupported-event` (Twilio also emits e.g. `mark`/`dtmf` events this server doesn't use). |
+| Event         | Direction | Contents (as consumed here)                                                                                           |
+| ------------- | --------- | --------------------------------------------------------------------------------------------------------------------- |
+| `connected`   | inbound   | Handshake; logged, no action.                                                                                         |
+| `start`       | inbound   | `start.callSid`, `start.streamSid`, `start.customParameters` (carries the auth `token` from the TwiML `<Parameter>`). |
+| `media`       | inbound   | `media.payload` = base64 mu-law chunk. Decoded size capped at `TWILIO_MEDIA_PAYLOAD_MAX_BYTES` (default 512).         |
+| `stop`        | inbound   | Call ended on Twilio's side; triggers teardown.                                                                       |
+| anything else | inbound   | Ignored and logged as `media-ws-unsupported-event` — other event types Twilio may emit are ignored by design.         |
 
 **Outbound** (server → Twilio, `sendMulawAudio` in `mulaw-audio.js`): the server sends the same envelope shape —
 `{"event":"media","streamSid":"MZ…","media":{"payload":"<base64 mu-law>"}}` — over the open WebSocket. This is how ringback and unlock DTMF reach the caller. There is no separate outbound channel: **the WebSocket IS the call**.

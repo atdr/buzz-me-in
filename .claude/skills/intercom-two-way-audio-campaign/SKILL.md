@@ -22,12 +22,15 @@ description: Decision-gated diagnostic and fix campaign for the project's hardes
 # On the Pi, in three shells (or tmux panes), BEFORE dialing:
 journalctl -u intercom -f -o cat > /tmp/call-$(date +%s).jsonl     # full journal
 ls /tmp/intercom_return_*.sdp                                       # baseline: should be empty
-# The return-audio UDP port is per-session; capture it after the live view opens:
-#   grep the newest journal for the START, then:
-sudo tcpdump -i lo -n "udp" -c 200 -w /tmp/return-audio.pcap        # refine port at Gate 3
+# The return-audio UDP port is per-session; refine the filter at Gate 3:
+sudo tcpdump -i any -n "udp" -c 200 -w /tmp/return-audio.pcap
 ```
 
+Capture on `-i any`, not a named interface: the controller sends return SRTP to the address from `getLocalIp()` (a LAN address), so packets may arrive on `eth0`/`wlan0` rather than `lo`. README Stage 6 shows `-i lo`; interface choice must never be the reason you conclude "no packets".
+
 Reproduce: dial the Twilio number from a phone, answer the doorbell notification, open the live view, speak into the iPhone mic, then hang up from the iPhone.
+
+**Keep good-call baselines.** When a call passes all gates, save its journal + pcap + SDP as the reference bundle (e.g. `/home/pi/call-baselines/<date>/`). Intermittent bugs are diagnosed by diffing a bad call's artifacts against a known-good set — without a baseline every bad call is uninterpretable.
 
 ## Gates — walk in order; branch at the first failure
 
@@ -58,7 +61,7 @@ Find the session's return-audio parameters:
 ```bash
 SDP=$(ls -t /tmp/intercom_return_*.sdp | head -1); cat "$SDP"
 # m=audio <PORT> RTP/SAVP <PT>   ← note PORT and PT
-sudo tcpdump -i lo -n "udp port <PORT>" -c 10 -X
+sudo tcpdump -i any -n "udp port <PORT>" -c 10 -X
 ```
 
 **Expect**: RTP packets flowing while you speak into the iPhone; byte 1 of each packet `& 0x7F` equals the `<PT>` from the SDP (README Stage 6 documents this check).

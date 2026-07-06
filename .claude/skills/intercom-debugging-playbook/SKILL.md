@@ -20,22 +20,24 @@ journalctl -u intercom -o cat | grep '"level":"warn"\|"level":"error"'
 
 Set `LOG_LEVEL=debug` in `.env` (and restart) for more detail; `LOG_PRETTY=1` for indented output during local runs.
 
+Note: `"event":"start"` is emitted at **info** level when the start is accepted and at **warn** level when it is rejected (with a `reason`) — include `"level"` in your grep to tell them apart.
+
 ## Golden path — the event sequence of a healthy call
 
 Compare a failing call's journal against this order. The first missing/deviating event localises the fault.
 
-| #   | component | event                                                 | Meaning                                    |
-| --- | --------- | ----------------------------------------------------- | ------------------------------------------ |
-| 1   | twiml     | `twiml-request`                                       | Twilio webhook arrived                     |
-| 2   | twiml     | `twiml-response`                                      | Signature valid, TwiML with token returned |
-| 3   | media-ws  | `media-ws-accepted`                                   | Twilio opened the WebSocket                |
-| 4   | media-ws  | `connected`                                           | Protocol handshake frame                   |
-| 5   | media-ws  | `start` (info)                                        | Token verified, call session started       |
-| 6   | homekit   | `doorbell-triggered`                                  | HomeKit notified                           |
-| 7   | media-ws  | `ringback-stopped` (reason `homekit-session-started`) | User opened live view                      |
-| 8   | homekit   | `mulaw-stream-bound`                                  | Twilio audio piped into inbound ffmpeg     |
-| 9   | media-ws  | `stop` then `session-ended`                           | Caller hung up; teardown                   |
-| 10  | homekit   | `ffin-exit` / `ffout-exit`                            | ffmpeg processes reaped                    |
+| #   | component | event                                                 | Meaning                                                       |
+| --- | --------- | ----------------------------------------------------- | ------------------------------------------------------------- |
+| 1   | twiml     | `twiml-request`                                       | Twilio webhook arrived                                        |
+| 2   | twiml     | `twiml-response`                                      | Signature valid, TwiML with token returned                    |
+| 3   | media-ws  | `media-ws-accepted`                                   | Twilio opened the WebSocket                                   |
+| 4   | media-ws  | `connected`                                           | Protocol handshake frame                                      |
+| 5   | media-ws  | `start` (info)                                        | Token verified, call session started                          |
+| 6   | homekit   | `doorbell-triggered`                                  | HomeKit notified                                              |
+| 7   | homekit   | `mulaw-stream-bound`                                  | User opened live view; Twilio audio piped into inbound ffmpeg |
+| 8   | media-ws  | `ringback-stopped` (reason `homekit-session-started`) | Ringback ceases once the HomeKit session is up                |
+| 9   | media-ws  | `stop` then `session-ended`                           | Caller hung up; teardown                                      |
+| 10  | homekit   | `ffin-exit` / `ffout-exit`                            | ffmpeg processes reaped                                       |
 
 (If HomeKit hangs up first, expect `ffin-exit` → `hangup` (component `twilio-api`) instead of 9.)
 
@@ -71,12 +73,12 @@ Re-generate this inventory any time: `grep -rhoE "event: '[a-z-]+'" server.js ho
 | ---------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------ |
 | 2026-03-29 | `/ringtone` returned 404                                                               | `httpdispatcher` didn't route `.wav` paths                                                                                             | Workaround `afd1d04`; dependency removed entirely in PR #35                                   | Closed |
 | 2026-03-29 | Ringtone sounded wrong                                                                 | Single-burst cadence isn't UK ringback                                                                                                 | Proper double-ring pattern `c84192c`                                                          | Closed |
-| 2026-03-29 | Pairing/advertisement flaky on RPi                                                     | Default HAP mDNS advertiser unreliable on Raspberry Pi OS                                                                              | Switch to Avahi `9724241`                                                                     | Closed |
-| 2026-05-03 | WS auth failing                                                                        | Token in WS URL query didn't survive to validation                                                                                     | Token moved to TwiML `<Parameter>` → `customParameters` (`bf7aa2f`)                           | Closed |
-| 2026-05-03 | Return audio silent                                                                    | Return-audio SRTP keys not aligned with controller's                                                                                   | `5a235b7` "Align HomeKit audio SRTP keys"                                                     | Closed |
-| 2026-05-03 | Inbound audio garbled after answer                                                     | Wall-clock PTS broke when ffmpeg drained the buffered startup burst                                                                    | Sample-derived timestamps `57f3171`                                                           | Closed |
+| 2026-03-29 | (symptom unrecorded)                                                                   | Commit records no rationale; Avahi is Raspberry Pi OS's system mDNS daemon                                                             | Switch to Avahi advertiser `9724241` — do not switch back without testing pairing             | Closed |
+| 2026-05-03 | (symptom unrecorded)                                                                   | Commit records no rationale; token was moved from the WS URL query string to a TwiML `<Parameter>` → `customParameters`                | `bf7aa2f` — do not move the token back to the URL query                                       | Closed |
+| 2026-05-03 | Return audio broken (inferred)                                                         | Return-audio SRTP keys not aligned with controller's (per commit title)                                                                | `5a235b7` "Align HomeKit audio SRTP keys"                                                     | Closed |
+| 2026-05-03 | Inbound audio broken after answer (inferred)                                           | Wall-clock PTS breaks when ffmpeg drains the buffered startup burst (per code comment in `homekit.js`)                                 | Sample-derived timestamps `57f3171`                                                           | Closed |
 | 2026-05-03 | ffmpeg rejected `-ssrc`                                                                | ffmpeg parses SSRC as signed 32-bit                                                                                                    | Mask to `0x7fffffff` (`b93af64`)                                                              | Closed |
-| 2026-05-03 | Unlock DTMF unreliable                                                                 | REST-API DTMF doesn't fit a `<Connect><Stream>` call                                                                                   | Flip-flop `e4587cd` → final: DTMF over media stream `4292bc2`                                 | Closed |
+| 2026-05-03 | Unlock DTMF unreliable (inferred)                                                      | REST-API DTMF sits poorly with a `<Connect><Stream>` call (inferred — commits record no rationale for the flip-flop)                   | `e4587cd` → final: DTMF over media stream `4292bc2`                                           | Closed |
 | 2026-05-03 | Outbound audio still imperfect                                                         | **Unknown** — frame pacing (`79df86b`) and queue bounding (`7dd02c0`) were tried and **both reverted same day** (`c6f91a1`, `c98ba40`) | None — fenced off; see intercom-two-way-audio-campaign                                        | OPEN   |
 | 2026-06-11 | Crash risks: destroyed-stream pipe, wedged ffmpeg, lingering mDNS, unbounded buffering | Several lifecycle gaps                                                                                                                 | PR #30 `5b02700` (SIGKILL escalation, exit-on-uncaught, frame dropping, error 21220 handling) | Closed |
 | 2026-06+   | `npm audit` failures on transitive deps                                                | form-data CRLF advisory, brace-expansion, qs                                                                                           | Overrides/bumps `35d0458`, `071e55a` — audit runs in CI at `--audit-level=high`               | Recurs |

@@ -38,14 +38,15 @@ grep -rn "myModuleName\|my-env-var\|my-log-message" README.md docs/ AGENTS.md .e
 
 ## Docs-sync rules (mechanical, from AGENTS.md)
 
-| You changed…                                     | You must update…                                                                                                                                                              |
-| ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| A `logger.*` call whose output appears in README | The README end-to-end test sequence — log examples must **byte-match** the emitted `message`, `component`, and field names. Verify: grep the `message` string in both places. |
-| Added/removed a module or top-level file         | README file-structure tree AND `docs/architecture.md` runtime-components list                                                                                                 |
-| An HTTP endpoint (route, auth, response shape)   | README endpoints table + test stages AND `docs/architecture.md` auth-boundaries section (which must list every endpoint, including intentionally unauthenticated ones)        |
-| An env var                                       | `.env.example` (the single source of truth) with an inline comment                                                                                                            |
-| A test file                                      | `docs/testing.md` test-layout list                                                                                                                                            |
-| CI workflows, git hooks, release automation      | `docs/testing.md` CI-notes section                                                                                                                                            |
+| You changed…                                                     | You must update…                                                                                                                                                                                                   |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A `logger.*` call whose output appears in README                 | The README end-to-end test sequence — log examples must **byte-match** the emitted `message`, `component`, and field names. Verify: grep the `message` string in both places.                                      |
+| Added/removed a module or top-level file                         | README file-structure tree AND `docs/architecture.md` runtime-components list                                                                                                                                      |
+| An HTTP endpoint (route, auth, response shape)                   | README endpoints table + test stages AND `docs/architecture.md` auth-boundaries section (which must list every endpoint, including intentionally unauthenticated ones)                                             |
+| An env var                                                       | `.env.example` (the single source of truth) with an inline comment                                                                                                                                                 |
+| A test file                                                      | `docs/testing.md` test-layout list                                                                                                                                                                                 |
+| CI workflows, git hooks, release automation                      | `docs/testing.md` CI-notes section                                                                                                                                                                                 |
+| Anything a skill asserts (log events, commands, defaults, paths) | The affected `.claude/skills/*/SKILL.md` in the same PR — each skill's "Provenance and maintenance" section lists one-line re-verification commands. (Skills-library rule; AGENTS.md governs the repo docs above.) |
 
 ## Automation map
 

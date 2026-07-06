@@ -30,7 +30,7 @@ description: What counts as evidence in this repo — the five quality gates, un
 
 ## The live-number rule
 
-E2E stages 4–9 dial a **real Twilio number attached to a real household**. Test calls cost money and ring devices people live with.
+E2E stages 4–10 dial a **real Twilio number attached to a real household** (Stage 10's reboot check ends with a confirmation call). Test calls cost money and ring devices people live with.
 
 - Plan before dialing: list every gate/observation the call must produce, then make **one** call and capture the full journal (`journalctl -u intercom --since "5 min ago" -o cat > /tmp/call-evidence.jsonl`).
 - Never script repeated automatic calls at the live number.
