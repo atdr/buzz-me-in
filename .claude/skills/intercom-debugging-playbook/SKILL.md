@@ -1,0 +1,101 @@
+---
+name: intercom-debugging-playbook
+description: Symptom→triage table, log-event inventory, discriminating experiments, and failure archaeology for the intercom's real failure modes — no doorbell, one-way/no audio, blank video, pairing failures, webhook 403s, stuck sessions. Use FIRST whenever a call misbehaves or a log line looks wrong. For deep intermittent two-way-audio work use intercom-two-way-audio-campaign; for protocol theory use telephony-audio-reference.
+---
+
+# Debugging playbook
+
+**Use this skill when** something misbehaves at runtime and you need to go from symptom to cause with evidence.
+**Do NOT use it for**: the intermittent two-way-audio problem specifically (`intercom-two-way-audio-campaign` is the dedicated, gated campaign), protocol background (`telephony-audio-reference`), or deciding how to land a fix (`intercom-change-control-and-docs`).
+
+## Reading the logs
+
+Structured JSON lines. Canonical fields: `component`, `event`, `callSid`, `reason`, `durationMs`. `debug`/`info` → stdout, `warn`/`error` → stderr; under systemd both land in the journal:
+
+```bash
+journalctl -u intercom --since "10 min ago" -o cat          # raw JSON lines
+journalctl -u intercom -o cat | grep '"event":"start"'      # grep by event
+journalctl -u intercom -o cat | grep '"level":"warn"\|"level":"error"'
+```
+
+Set `LOG_LEVEL=debug` in `.env` (and restart) for more detail; `LOG_PRETTY=1` for indented output during local runs.
+
+Note: `"event":"start"` is emitted at **info** level when the start is accepted and at **warn** level when it is rejected (with a `reason`) — include `"level"` in your grep to tell them apart.
+
+## Golden path — the event sequence of a healthy call
+
+Compare a failing call's journal against this order. The first missing/deviating event localises the fault.
+
+| #   | component | event                                                 | Meaning                                                       |
+| --- | --------- | ----------------------------------------------------- | ------------------------------------------------------------- |
+| 1   | twiml     | `twiml-request`                                       | Twilio webhook arrived                                        |
+| 2   | twiml     | `twiml-response`                                      | Signature valid, TwiML with token returned                    |
+| 3   | media-ws  | `media-ws-accepted`                                   | Twilio opened the WebSocket                                   |
+| 4   | media-ws  | `connected`                                           | Protocol handshake frame                                      |
+| 5   | media-ws  | `start` (info)                                        | Token verified, call session started                          |
+| 6   | homekit   | `doorbell-triggered`                                  | HomeKit notified                                              |
+| 7   | homekit   | `mulaw-stream-bound`                                  | User opened live view; Twilio audio piped into inbound ffmpeg |
+| 8   | media-ws  | `ringback-stopped` (reason `homekit-session-started`) | Ringback ceases once the HomeKit session is up                |
+| 9   | media-ws  | `stop` then `session-ended`                           | Caller hung up; teardown                                      |
+| 10  | homekit   | `ffin-exit` / `ffout-exit`                            | ffmpeg processes reaped                                       |
+
+(If HomeKit hangs up first, expect `ffin-exit` → `hangup` (component `twilio-api`) instead of 9.)
+
+## Symptom → triage
+
+| Symptom                                                              | First check                                                         | Discriminating experiment                                                                                                                                                                                        | Likely cause                                                                                                                                                       |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Caller hears nothing, no doorbell                                    | Any `twiml-request` in journal?                                     | `curl https://$TUNNEL_HOSTNAME/healthz` from off-LAN                                                                                                                                                             | Tunnel down / Twilio webhook URL wrong → see intercom-deploy-and-operate                                                                                           |
+| `twiml-rejected` reason `invalid-twilio-signature` (Twilio gets 403) | Value of `TWILIO_WEBHOOK_BASE_URL` vs the URL Twilio actually calls | Compare `twilioWebhookBaseUrl` (defaults to `https://{TUNNEL_HOSTNAME}`) with the Voice webhook URL in the Twilio console                                                                                        | Base-URL mismatch — Twilio signs the exact external URL; set `TWILIO_WEBHOOK_BASE_URL` explicitly                                                                  |
+| WS opens then closes ~immediately                                    | `start` warn with a `reason`                                        | `grep '"event":"start"' journal` — reasons: `missing token`, `invalid token signature`, `nonce not pending`, `expired or malformed token`, `callsid-mismatch`, `start-timeout`, `another call is already active` | Token replay/expiry (TTL 90 s, one-time), server restarted between TwiML and WS (nonce store is in-memory), or a stuck session holding the single active-call slot |
+| Doorbell rings on server but no iPhone notification                  | `accessory-published` at startup; RPi and iPhone on same LAN        | `avahi-browse -art \| grep -i intercom` on the Pi; check `HAP_PORT` (default 47129) not firewalled                                                                                                               | mDNS/Avahi advertisement not reaching the phone (HAP requires LAN multicast)                                                                                       |
+| Live view opens, blank video tile                                    | `ffin-stderr` events                                                | `ffmpeg -codecs \| grep 264`; if streams start but stay blank, try removing `?rtcpport=…` params from the SRTP URLs in `homekit.js` (README Stage 5 note)                                                        | Missing libx264, or no early IDR frame, or an RTCP-mux quirk in the controller                                                                                     |
+| Live view opens, no inbound audio                                    | `mulaw-stream-bound` present?                                       | `ffmpeg -codecs \| grep opus`; check `media-frames-dropped` warnings                                                                                                                                             | libopus missing; or ffmpeg stdin stalled (frames dropped by design under backpressure)                                                                             |
+| No outbound audio (mic → intercom)                                   | `ffout-exit` firing early? `ffout-stderr`?                          | Go to **intercom-two-way-audio-campaign** — this is the gated deep-dive                                                                                                                                          | Multiple historical causes; do not guess                                                                                                                           |
+| Unlock does nothing                                                  | `unlock-requested` vs `unlock-no-active-call`                       | Confirm a call is active: `curl -H "Authorization: Bearer $STATUS_API_TOKEN" localhost:8080/status`                                                                                                              | Lock tapped with no active call (by design), or DTMF sequence wrong for the building (`TWILIO_UNLOCK_DIGITS`)                                                      |
+| Call never cleans up / next call rejected                            | `session-stale` warnings                                            | Wait for reaper (fires within `CALL_SESSION_STALE_SEC`, default 900 s) or restart service                                                                                                                        | WS died without `stop`/`close`; stale reaper is the designed backstop                                                                                              |
+| Service crash-loops on boot                                          | `[config]` error text in journal                                    | `node -e "require('./src/core/config')"` in the repo dir on the Pi                                                                                                                                               | Invalid/missing env var — config validates at require time and refuses to start                                                                                    |
+
+## Log-event inventory (grep-able, complete as of 2026-07-04)
+
+- **server**: `server-start`, `request-handler-error`, `session-stale`, `stale-close-failed`, `shutdown-start`, `shutdown-force-exit`, `shutdown-complete`, `uncaught-exception`, `unhandled-rejection`
+- **twiml**: `twiml-request`, `twiml-response`, `twiml-rejected`, `twiml-body-read-failed`, `twiml-unhandled-error`
+- **media-ws**: `media-ws-accepted`, `connected`, `start`, `media`, `stop`, `session-ended`, `ringback-stopped`, `media-frames-dropped`, `media-frames-resumed`, `media-ws-message-too-large`, `media-ws-invalid-json`, `media-ws-invalid-event-payload`, `media-ws-unsupported-event`
+- **homekit**: `accessory-published`, `accessory-qr-setup`, `snapshot-ready`, `doorbell-triggered`, `mulaw-stream-bound`, `mulaw-stream-rebound`, `stream-prepare-failed`, `ffin-stderr`, `ffin-exit`, `ffout-stderr`, `ffout-exit`, `unlock-requested`, `unlock-failed`, `unlock-no-active-call`, `hangup-call-already-ended`, `hangup-call-failed`, `accessory-destroy-failed`
+- **twilio-api**: `hangup`
+- **state**: `stale-handler-failed`
+
+Re-generate this inventory any time: `grep -rhoE "event: '[a-z-]+'" server.js homekit.js twilio-api.js src/core/ | sort -u`
+
+## Failure archaeology — settled battles, do not re-fight
+
+| When       | Symptom                                                                                | Root cause                                                                                                                             | Resolution (commit)                                                                           | Status |
+| ---------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------ |
+| 2026-03-29 | `/ringtone` returned 404                                                               | `httpdispatcher` didn't route `.wav` paths                                                                                             | Workaround `afd1d04`; dependency removed entirely in PR #35                                   | Closed |
+| 2026-03-29 | Ringtone sounded wrong                                                                 | Single-burst cadence isn't UK ringback                                                                                                 | Proper double-ring pattern `c84192c`                                                          | Closed |
+| 2026-03-29 | (symptom unrecorded)                                                                   | Commit records no rationale; Avahi is Raspberry Pi OS's system mDNS daemon                                                             | Switch to Avahi advertiser `9724241` — do not switch back without testing pairing             | Closed |
+| 2026-05-03 | (symptom unrecorded)                                                                   | Commit records no rationale; token was moved from the WS URL query string to a TwiML `<Parameter>` → `customParameters`                | `bf7aa2f` — do not move the token back to the URL query                                       | Closed |
+| 2026-05-03 | Return audio broken (inferred)                                                         | Return-audio SRTP keys not aligned with controller's (per commit title)                                                                | `5a235b7` "Align HomeKit audio SRTP keys"                                                     | Closed |
+| 2026-05-03 | Inbound audio broken after answer (inferred)                                           | Wall-clock PTS breaks when ffmpeg drains the buffered startup burst (per code comment in `homekit.js`)                                 | Sample-derived timestamps `57f3171`                                                           | Closed |
+| 2026-05-03 | ffmpeg rejected `-ssrc`                                                                | ffmpeg parses SSRC as signed 32-bit                                                                                                    | Mask to `0x7fffffff` (`b93af64`)                                                              | Closed |
+| 2026-05-03 | Unlock DTMF unreliable (inferred)                                                      | REST-API DTMF sits poorly with a `<Connect><Stream>` call (inferred — commits record no rationale for the flip-flop)                   | `e4587cd` → final: DTMF over media stream `4292bc2`                                           | Closed |
+| 2026-05-03 | Outbound audio still imperfect                                                         | **Unknown** — frame pacing (`79df86b`) and queue bounding (`7dd02c0`) were tried and **both reverted same day** (`c6f91a1`, `c98ba40`) | None — fenced off; see intercom-two-way-audio-campaign                                        | OPEN   |
+| 2026-06-11 | Crash risks: destroyed-stream pipe, wedged ffmpeg, lingering mDNS, unbounded buffering | Several lifecycle gaps                                                                                                                 | PR #30 `5b02700` (SIGKILL escalation, exit-on-uncaught, frame dropping, error 21220 handling) | Closed |
+| 2026-06+   | `npm audit` failures on transitive deps                                                | form-data CRLF advisory, brace-expansion, qs                                                                                           | Overrides/bumps `35d0458`, `071e55a` — audit runs in CI at `--audit-level=high`               | Recurs |
+
+### Fenced-off wrong paths (tried, failed, reverted)
+
+- **Do not add outbound media frame pacing** — tried in `79df86b`, reverted hours later (`c6f91a1`).
+- **Do not add outbound media queue bounding** — tried in `7dd02c0`, reverted (`c98ba40`).
+  Both require new packet-level evidence before retrying; see the campaign skill's solution menu.
+- **Do not assume Opus payload type 110** — the START request's negotiated PT is authoritative.
+- **Do not move the stream token back to the WS URL query string.**
+
+## Provenance and maintenance
+
+Written 2026-07-04 against commit `d377b02`. Re-verify:
+
+- Event inventory: `grep -rhoE "event: '[a-z-]+'" server.js homekit.js twilio-api.js src/core/ | sort -u`
+- Golden-path claims: README "End-to-end test sequence" (doc of record for expected pass output)
+- Archaeology commits: `git log --oneline | grep -iE "revert|ringtone|avahi|token|SRTP|SSRC|timestamps"`
+- Stale-reaper default: `grep -n "CALL_SESSION_STALE_SEC" src/core/config.js .env.example`
