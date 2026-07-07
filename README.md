@@ -300,7 +300,7 @@ Speak into the iPhone microphone while the live view is open.
 The SDP file used by ffmpeg is generated dynamically using the Opus payload type negotiated by HAP-NodeJS in the START request, so a PT mismatch should not occur. If audio is still missing, capture the return UDP traffic to verify:
 
 ```bash
-sudo tcpdump -i lo -n "udp port <returnAudioPort>" -c 10 -X
+sudo tcpdump -i any -n "udp port <returnAudioPort>" -c 10 -X
 ```
 
 Byte 1 of each RTP packet (bitwise AND with `0x7F`) is the payload type. If it does not match the PT in the generated SDP at `/tmp/intercom_return_<sessionID>.sdp`, the HAP-NodeJS negotiation and actual RTP stream are out of sync — check for a HAP-NodeJS version incompatibility.
