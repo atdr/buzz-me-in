@@ -26,7 +26,7 @@ ls /tmp/intercom_return_*.sdp                                       # baseline: 
 sudo tcpdump -i any -n "udp" -c 200 -w /tmp/return-audio.pcap
 ```
 
-Capture on `-i any`, not a named interface: the controller sends return SRTP to the address from `getLocalIp()` (a LAN address), so packets may arrive on `eth0`/`wlan0` rather than `lo`. README Stage 6 shows `-i lo`; interface choice must never be the reason you conclude "no packets".
+Capture on `-i any`, not a named interface: the controller sends return SRTP to the address from `getLocalIp()` (a LAN address), so packets may arrive on `eth0`/`wlan0` rather than `lo`. Interface choice must never be the reason you conclude "no packets".
 
 Reproduce: dial the Twilio number from a phone, answer the doorbell notification, open the live view, speak into the iPhone mic, then hang up from the iPhone.
 
