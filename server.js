@@ -13,6 +13,7 @@ const {
   STREAM_TOKEN_PARAMETER_NAME,
   verifyAndConsumeStreamToken,
 } = require('./src/core/stream-auth');
+const { normalizeCallSid } = require('./src/core/twilio-ids');
 const homekit = require('./homekit');
 const { createLogger } = require('./src/core/log');
 const { safeEqualString } = require('./src/core/safe-equal');
@@ -21,7 +22,7 @@ const { MediaStream } = require('./src/core/media-stream');
 
 const HTTP_SERVER_PORT = config.port;
 const STREAM_PATH = '/media';
-const STREAM_START_TIMEOUT_MS = 5000;
+const STREAM_START_TIMEOUT_MS = config.streamStartTimeoutMs;
 const STATUS_BEARER_PREFIX = 'Bearer ';
 const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
 const SHUTDOWN_GRACE_MS = config.shutdownGraceMs;
@@ -47,9 +48,17 @@ const RINGTONE_WAV = createRingbackWav();
 
 const wsserver = http.createServer(handleRequest);
 
+// Enforce message bounds in the websocket library itself so oversized
+// frames are rejected before assembly, instead of relying only on the
+// per-message check in MediaStream (library defaults allow 1 MiB).
+const WS_LIBRARY_MAX_BYTES = MAX_WS_UTF8_BYTES * 4;
+const MAX_CONCURRENT_WS_CONNECTIONS = config.wsMaxConnections;
+
 const mediaws = new WebSocketServer({
   httpServer: wsserver,
   autoAcceptConnections: false,
+  maxReceivedFrameSize: WS_LIBRARY_MAX_BYTES,
+  maxReceivedMessageSize: WS_LIBRARY_MAX_BYTES,
 });
 
 state.setOnSessionStale((session) => {
@@ -155,11 +164,11 @@ async function handleTwimlRequest(req, res) {
   }
 
   const formData = parseFormUrlEncoded(rawBody);
-  const callSid = typeof formData.CallSid === 'string' ? formData.CallSid : null;
+  const callSid = normalizeCallSid(formData.CallSid);
   const body = buildTwiml(callSid);
   twimlLogger.info('TwiML response generated', {
     event: 'twiml-response',
-    callSid: typeof formData.CallSid === 'string' ? formData.CallSid : undefined,
+    callSid: callSid || undefined,
   });
   res.writeHead(200, {
     'Content-Type': 'text/xml',
@@ -225,6 +234,21 @@ mediaws.on('request', function (request) {
   const path = wsRequest.resourceURL && wsRequest.resourceURL.pathname;
   if (path !== STREAM_PATH) {
     wsRequest.reject(404, 'Not found');
+    return;
+  }
+  // Memory backstop only: cap total sockets so a connection flood can't grow
+  // unbounded. Only one Twilio call is ever authenticated at a time, and each
+  // un-started socket is dropped after config.streamStartTimeoutMs, so this is
+  // deliberately generous. Volumetric / per-source rate-limiting is delegated
+  // to the Cloudflare edge — the tunnel makes every socket look like localhost,
+  // so in-process source accounting is both unreliable and trivially bypassed
+  // by IP rotation.
+  if (activeWsConnections.size >= MAX_CONCURRENT_WS_CONNECTIONS) {
+    mediaWsLogger.warn('Media websocket connection rejected', {
+      event: 'media-ws-rejected',
+      reason: 'too-many-connections',
+    });
+    wsRequest.reject(503, 'Too many connections');
     return;
   }
 

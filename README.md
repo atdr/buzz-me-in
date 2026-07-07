@@ -104,9 +104,10 @@ npm install
 
 ```bash
 cp .env.example .env
+chmod 600 .env
 ```
 
-Edit `.env` with your credentials. Each variable is explained inline in `.env.example`.
+Edit `.env` with your credentials. Each variable is explained inline in `.env.example`. The `chmod 600` keeps the Twilio auth token and other secrets readable only by your user.
 
 ### 3. Cloudflare Tunnel
 

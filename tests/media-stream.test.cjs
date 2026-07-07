@@ -6,6 +6,8 @@ const { EventEmitter } = require('node:events');
 const { MediaStream } = require('../src/core/media-stream');
 
 const GOOD_TOKEN = 'good-token';
+const VALID_CALL_SID = `CA${'0123456789abcdef'.repeat(2)}`;
+const OTHER_CALL_SID = `CA${'fedcba9876543210'.repeat(2)}`;
 const MULAW_FRAME_B64 = Buffer.alloc(160, 0xff).toString('base64');
 
 const noopLogger = {
@@ -97,7 +99,7 @@ function createHarness({ reboundSessions = 0 } = {}) {
     registry,
     verifyStreamToken: (token) =>
       token === GOOD_TOKEN
-        ? { ok: true, callSid: 'CA123' }
+        ? { ok: true, callSid: VALID_CALL_SID }
         : { ok: false, reason: 'invalid token signature' },
     tokenParameterName: 'token',
     startTimeoutMs: 60000,
@@ -111,7 +113,7 @@ function send(connection, payload) {
   connection.emit('message', { type: 'utf8', utf8Data: JSON.stringify(payload) });
 }
 
-function sendStart(connection, { callSid = 'CA123', token = GOOD_TOKEN } = {}) {
+function sendStart(connection, { callSid = VALID_CALL_SID, token = GOOD_TOKEN } = {}) {
   send(connection, {
     event: 'start',
     start: { callSid, streamSid: 'MZ123', customParameters: { token } },
@@ -124,8 +126,8 @@ describe('media stream protocol', () => {
     sendStart(h.connection);
 
     assert.equal(h.stream.started, true);
-    assert.equal(h.state.activeCall.callSid, 'CA123');
-    assert.equal(h.registry.get('CA123'), h.stream);
+    assert.equal(h.state.activeCall.callSid, VALID_CALL_SID);
+    assert.equal(h.registry.get(VALID_CALL_SID), h.stream);
     assert.equal(h.homekit.doorbellCount, 1);
     assert.equal(h.homekit.boundStream, h.stream.mulawStream);
     assert.ok(h.stream.ringbackTimer, 'ringback should be running');
@@ -153,7 +155,7 @@ describe('media stream protocol', () => {
 
   test('start with a token bound to another call is rejected', () => {
     const h = createHarness();
-    sendStart(h.connection, { callSid: 'CAother' });
+    sendStart(h.connection, { callSid: OTHER_CALL_SID });
 
     assert.equal(h.stream.started, false);
     assert.equal(h.state.activeCall, null);
@@ -190,7 +192,7 @@ describe('media stream protocol', () => {
 
     send(h.connection, { event: 'media', media: { payload: MULAW_FRAME_B64 } });
     assert.equal(h.stream.mulawStream.readableLength, 0, 'no forwarding before live view');
-    assert.deepEqual(h.state.lastActivity, { callSid: 'CA123', eventName: 'twilio-media' });
+    assert.deepEqual(h.state.lastActivity, { callSid: VALID_CALL_SID, eventName: 'twilio-media' });
 
     h.stream.markHomekitSessionStarted();
     send(h.connection, { event: 'media', media: { payload: MULAW_FRAME_B64 } });

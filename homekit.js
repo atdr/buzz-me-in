@@ -19,7 +19,6 @@
 const hap = require('hap-nodejs');
 const qrcode = require('qrcode-terminal');
 const crypto = require('crypto');
-const fs = require('fs');
 const net = require('net');
 const os = require('os');
 const { spawn } = require('child_process');
@@ -27,6 +26,11 @@ const { spawn } = require('child_process');
 const config = require('./src/core/config');
 const state = require('./src/core/state');
 const { sendDtmfSequence, sendMulawAudio } = require('./src/core/mulaw-audio');
+const {
+  removeReturnAudioSdp,
+  removeSdpDir,
+  writeReturnAudioSdp,
+} = require('./src/core/return-audio-sdp');
 const { createLogger } = require('./src/core/log');
 const { hangUpCall } = require('./twilio-api');
 
@@ -419,79 +423,86 @@ function _startSession(sessionID, s, request, callback) {
   // Use the negotiated Opus payload type from HomeKit's START request; older
   // versions assumed 110, which breaks when the controller chooses otherwise.
   // -------------------------------------------------------------------------
-  const returnParams = srtpParams(s.returnAudioKey, s.returnAudioSalt);
-  const sdpPath = `/tmp/intercom_return_${sessionID}.sdp`;
-
-  fs.writeFileSync(
-    sdpPath,
-    [
-      'v=0',
-      'o=- 0 0 IN IP4 127.0.0.1',
-      's=Return Audio',
-      'c=IN IP4 127.0.0.1',
-      't=0 0',
-      `m=audio ${s.returnAudioPort} RTP/SAVP ${audio.pt}`,
-      `a=rtpmap:${audio.pt} opus/48000/2`,
-      `a=fmtp:${audio.pt} minptime=10;useinbandfec=1`,
-      `a=crypto:1 AES_CM_128_HMAC_SHA1_80 inline:${returnParams}`,
-      'a=recvonly',
-      '',
-    ].join('\r\n')
-  );
-
-  const ffOut = spawn('ffmpeg', [
-    '-y',
-    '-loglevel',
-    'warning',
-    '-protocol_whitelist',
-    'file,crypto,udp,rtp',
-    '-f',
-    'sdp',
-    '-i',
-    sdpPath,
-    // Decode Opus → resample → encode mulaw/8kHz
-    '-ar',
-    '8000',
-    '-ac',
-    '1',
-    '-c:a',
-    'pcm_mulaw',
-    '-f',
-    'mulaw',
-    '-fflags',
-    '+nobuffer',
-    '-flush_packets',
-    '1',
-    'pipe:1',
-  ]);
-
-  ffOut.stderr.on('data', (d) => {
-    logger.warn('Outbound ffmpeg stderr', {
-      event: 'ffout-stderr',
-      reason: 'ffmpeg-stderr',
-      detail: d.toString('utf8').trim(),
-      sessionId: sessionID,
+  // ffIn is already spawned above; from here on, any throw (SDP write failure,
+  // ffOut spawn) must tear it down and fail the START, otherwise the inbound
+  // ffmpeg leaks and HomeKit's callback never fires.
+  let sdpPath;
+  let ffOut;
+  try {
+    sdpPath = writeReturnAudioSdp({
+      sessionID,
+      port: s.returnAudioPort,
+      payloadType: audio.pt,
+      srtpParams: srtpParams(s.returnAudioKey, s.returnAudioSalt),
     });
-  });
-  ffOut.on('close', (code) => {
-    logger.info('Outbound ffmpeg exited', {
-      event: 'ffout-exit',
-      reason: code === 0 ? 'clean-exit' : 'nonzero-exit',
-      exitCode: code,
-      sessionId: sessionID,
+
+    ffOut = spawn('ffmpeg', [
+      '-y',
+      '-loglevel',
+      'warning',
+      '-protocol_whitelist',
+      'file,crypto,udp,rtp',
+      '-f',
+      'sdp',
+      '-i',
+      sdpPath,
+      // Decode Opus → resample → encode mulaw/8kHz
+      '-ar',
+      '8000',
+      '-ac',
+      '1',
+      '-c:a',
+      'pcm_mulaw',
+      '-f',
+      'mulaw',
+      '-fflags',
+      '+nobuffer',
+      '-flush_packets',
+      '1',
+      'pipe:1',
+    ]);
+
+    ffOut.stderr.on('data', (d) => {
+      logger.warn('Outbound ffmpeg stderr', {
+        event: 'ffout-stderr',
+        reason: 'ffmpeg-stderr',
+        detail: d.toString('utf8').trim(),
+        sessionId: sessionID,
+      });
     });
-  });
+    ffOut.on('close', (code) => {
+      logger.info('Outbound ffmpeg exited', {
+        event: 'ffout-exit',
+        reason: code === 0 ? 'clean-exit' : 'nonzero-exit',
+        exitCode: code,
+        sessionId: sessionID,
+      });
+    });
 
-  // Forward each decoded mulaw chunk to Twilio as a media event.
-  ffOut.stdout.on('data', (chunk) => {
-    const activeCall = getActiveCall();
-    if (!activeCall || !activeCall.wsConnection || !activeCall.streamSid) return;
-    sendMulawAudio(activeCall, chunk);
-    state.markActivity(activeCall.callSid, 'homekit-outbound-media');
-  });
+    // Forward each decoded mulaw chunk to Twilio as a media event.
+    ffOut.stdout.on('data', (chunk) => {
+      const activeCall = getActiveCall();
+      if (!activeCall || !activeCall.wsConnection || !activeCall.streamSid) return;
+      sendMulawAudio(activeCall, chunk);
+      state.markActivity(activeCall.callSid, 'homekit-outbound-media');
+    });
 
-  activeSessions.set(sessionID, { ...s, ffIn, ffOut, sdpPath });
-  attachMulawStreamToSession(sessionID, currentMulawStream);
+    activeSessions.set(sessionID, { ...s, ffIn, ffOut, sdpPath });
+    attachMulawStreamToSession(sessionID, currentMulawStream);
+  } catch (error) {
+    logger.error('Failed to start HomeKit stream session', {
+      event: 'stream-start-failed',
+      reason: 'session-setup-threw',
+      sessionId: sessionID,
+      error,
+    });
+    activeSessions.delete(sessionID);
+    killFfmpeg(ffIn);
+    if (ffOut) killFfmpeg(ffOut);
+    if (sdpPath) removeReturnAudioSdp(sdpPath);
+    callback(error);
+    return;
+  }
 
   const activeCall = getActiveCall();
   if (activeCall && onHapSessionStarted) {
@@ -537,11 +548,7 @@ function _stopSession(sessionID, hangUp) {
     killFfmpeg(s.ffIn);
   }
   if (s.ffOut) killFfmpeg(s.ffOut);
-  if (s.sdpPath) {
-    try {
-      fs.unlinkSync(s.sdpPath);
-    } catch {}
-  }
+  if (s.sdpPath) removeReturnAudioSdp(s.sdpPath);
 
   const activeCall = getActiveCall();
   if (hangUp && activeCall) {
@@ -673,15 +680,22 @@ accessory.publish({
   advertiser: hap.MDNSAdvertiser.AVAHI,
 });
 
-const hapPincode = config.hapPincode;
 logger.info('Accessory published', {
   event: 'accessory-published',
-  hapPincode,
 });
-logger.info('Accessory QR setup URI generated', {
-  event: 'accessory-qr-setup',
-});
-qrcode.generate(accessory.setupURI(), { small: true });
+// The setup QR encodes the pairing pincode, so only print it on an
+// interactive terminal — never into journald/log files.
+if (process.stdout.isTTY) {
+  logger.info('Accessory QR setup URI generated', {
+    event: 'accessory-qr-setup',
+  });
+  qrcode.generate(accessory.setupURI(), { small: true });
+} else {
+  logger.info('Pairing QR suppressed on non-interactive stdout; pair with HAP_PINCODE from .env', {
+    event: 'accessory-qr-suppressed',
+    reason: 'stdout-not-tty',
+  });
+}
 
 // Kick off snapshot generation asynchronously (non-blocking)
 initSnapshot().then(() =>
@@ -754,6 +768,7 @@ function setOnHapSessionStarted(handler) {
  */
 function shutdown() {
   endHapSession();
+  removeSdpDir();
   accessory.destroy().catch((error) => {
     logger.error('Failed to destroy HAP accessory during shutdown', {
       event: 'accessory-destroy-failed',

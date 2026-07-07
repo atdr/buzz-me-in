@@ -5,6 +5,8 @@ const assert = require('node:assert/strict');
 const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('../src/core/ws-events-schema');
 const { withEnv, freshRequire } = require('./helpers/env.cjs');
 
+const VALID_CALL_SID = `CA${'0123456789abcdef'.repeat(2)}`;
+
 const VALID_ENV = {
   TWILIO_ACCOUNT_SID: 'AC12345678901234567890123456789012',
   TWILIO_AUTH_TOKEN: 'test_auth_token',
@@ -27,13 +29,13 @@ describe('ws event schema parsing', () => {
     const start = parseTwilioWsEvent({
       event: 'start',
       start: {
-        callSid: 'CA123',
+        callSid: VALID_CALL_SID,
         streamSid: 'MZ123',
         customParameters: { token: 'stream-token' },
       },
     });
     assert.equal(start.ok, true);
-    assert.equal(start.data.start.callSid, 'CA123');
+    assert.equal(start.data.start.callSid, VALID_CALL_SID);
     assert.equal(start.data.start.streamSid, 'MZ123');
     assert.equal(start.data.start.customParameters.token, 'stream-token');
 
@@ -60,19 +62,28 @@ describe('ws event schema parsing', () => {
     const result = parseTwilioWsEvent({
       event: 'start',
       start: {
-        callSid: 'CA123',
+        callSid: VALID_CALL_SID,
         streamSid: 'MZ123',
       },
     });
     assert.equal(result.ok, true);
-    assert.equal(result.data.start.callSid, 'CA123');
+    assert.equal(result.data.start.callSid, VALID_CALL_SID);
     assert.equal(result.data.start.customParameters, undefined);
   });
 
   test('rejects malformed start event shape', () => {
     const result = parseTwilioWsEvent({
       event: 'start',
-      start: { callSid: 'CA123' },
+      start: { callSid: VALID_CALL_SID },
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, 'invalid start payload');
+  });
+
+  test('rejects a start event with a non-canonical callSid', () => {
+    const result = parseTwilioWsEvent({
+      event: 'start',
+      start: { callSid: 'CA123', streamSid: 'MZ123' },
     });
     assert.equal(result.ok, false);
     assert.equal(result.reason, 'invalid start payload');

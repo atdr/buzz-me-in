@@ -1,6 +1,7 @@
 'use strict';
 
 const { z } = require('zod');
+const { CALL_SID_REGEX } = require('./twilio-ids');
 /** @import { WsEventParseResult, MediaPayloadParseResult } from './types.js' */
 
 const connectedEventSchema = z.object({
@@ -10,7 +11,7 @@ const connectedEventSchema = z.object({
 const startEventSchema = z.object({
   event: z.literal('start'),
   start: z.object({
-    callSid: z.string().min(1),
+    callSid: z.string().regex(CALL_SID_REGEX),
     streamSid: z.string().min(1),
     mediaFormat: z
       .object({
