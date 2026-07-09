@@ -18,8 +18,8 @@ const { createRingbackMulawCycle, sendMulawAudio } = require('./mulaw-audio');
 
 /**
  * @typedef {object} MediaStreamDeps
- * @property {ReturnType<import('./log').createLogger>} logger
- * @property {import('./state')} state
+ * @property {ReturnType<typeof import('./log').createLogger>} logger
+ * @property {typeof import('./state')} state
  * @property {{ setMulawPassthrough: (stream: PassThrough) => number, triggerDoorbell: () => void, clearMulawPassthrough: (stream: PassThrough) => void, endHapSession: () => void }} homekit
  * @property {Map<string, MediaStream>} registry map of callSid → MediaStream
  * @property {(token: string) => StreamTokenVerificationResult} verifyStreamToken
