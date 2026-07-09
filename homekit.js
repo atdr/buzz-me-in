@@ -101,6 +101,7 @@ function srtpParams(key, salt) {
 
 let snapshotJpeg = null;
 
+/** @returns {Promise<void>} */
 function initSnapshot() {
   return new Promise((resolve) => {
     const ff = spawn('ffmpeg', [
