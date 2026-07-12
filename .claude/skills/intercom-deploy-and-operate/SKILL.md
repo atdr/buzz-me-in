@@ -19,10 +19,6 @@ Two systemd units, journald logging, `.env` file for config:
 
 The server exits deliberately on `uncaughtException`/`unhandledRejection` and relies on systemd to restart it — a restart in the journal is the designed recovery path, not necessarily a bug to chase (but grep the exception first).
 
-### Known trap (legacy): cloudflared binary path
-
-Deployments set up before July 2026 used a hand-written unit with `ExecStart=/usr/local/bin/cloudflared`, but installing via the Cloudflare **apt repository** (the README-recommended route) puts the binary at `/usr/bin/cloudflared`, so the unit failed with status 203/EXEC. New installs avoid this: `cloudflared service install` writes its own unit with the correct path. If you hit 203/EXEC on an old deployment, rerun `sudo cloudflared --config ~/.cloudflared/config.yml service install` rather than patching `ExecStart`.
-
 ## Ship a change
 
 ```bash
@@ -68,7 +64,7 @@ Notes:
 | Test                                                                     | Result | Conclusion                                                                                                                           |
 | ------------------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------ |
 | On the Pi: `curl localhost:8080/healthz`                                 | fails  | Server down → `journalctl -u intercom -b -o cat`, look for `[config]` (bad env → crash-loop), `uncaught-exception`, or port conflict |
-| Server OK locally, `curl https://$TUNNEL_HOSTNAME/healthz` from anywhere | fails  | Tunnel down → `journalctl -u cloudflared`, check the legacy binary-path trap above, `cloudflared tunnel info intercom`               |
+| Server OK locally, `curl https://$TUNNEL_HOSTNAME/healthz` from anywhere | fails  | Tunnel down → `journalctl -u cloudflared`, `cloudflared tunnel info intercom`                                                        |
 | Both OK but calls don't arrive                                           | —      | Twilio side → console → Phone Numbers → Voice webhook must be `https://{host}/twiml`, POST; check Twilio call log for webhook errors |
 | Calls arrive but misbehave                                               | —      | → `intercom-debugging-playbook`                                                                                                      |
 
