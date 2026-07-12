@@ -5,7 +5,12 @@ description: Verified facts and gotchas for Cloudflare Tunnel (cloudflared). Use
 
 # Cloudflare Tunnel (cloudflared) working knowledge
 
+**Use this skill when** creating, configuring, or troubleshooting any cloudflared tunnel: ingress rules in config.yml, Cloudflare Access wiring, systemd service install, or 403/404/connection errors.
+**Do NOT use it for**: operating this repo's production Pi tunnel day to day (units, deploy loop, outage discrimination — `intercom-deploy-and-operate`) or diagnosing call/audio symptoms (`intercom-debugging-playbook`).
+
 Facts below were validated end to end in July 2026 with cloudflared 2026.7.1 on Debian 13. Prefer these over official docs where they conflict.
+
+**This project does not use Cloudflare Access.** `TUNNEL_HOSTNAME` must stay publicly reachable: Twilio cannot present an Access JWT to `POST /twiml` or the `/media` WebSocket, so auth is application-level instead (Twilio signature validation + HMAC stream tokens). Never put an Access destination in front of the intercom hostname while "hardening" the tunnel — it breaks all calls. The Access sections below are for other hostnames/tunnels (e.g. SSH to the Pi).
 
 ## Security-critical: `originRequest.access` placement
 
@@ -46,7 +51,7 @@ When adding or reviewing an Access-protected ingress rule, always verify enforce
 
 ## Access applications (Zero Trust / Cloudflare One)
 
-- Create the Access application **before** routing DNS to the tunnel, so the hostname is protected from the moment it resolves. Any hostname the tunnel exposes without an Access destination is reachable by the whole internet.
+- Create the Access application **before** routing DNS to the tunnel, so the hostname is protected from the moment it resolves. Any hostname the tunnel exposes without an Access destination is reachable by the whole internet (intentional for this repo's intercom hostname — see the note at the top).
 - Free tier limits: only one level of subdomain (edge cert limitation), up to five destinations per application.
 - The Application Audience (AUD) tag lives in the application's **Additional settings** tab; it's needed for the per-rule `access` block.
 - Default session duration is 24 hours.
