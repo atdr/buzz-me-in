@@ -6,7 +6,7 @@ description: Operating the production Raspberry Pi — systemd units, cloudflare
 # Deploy and operate
 
 **Use this skill when** you ship code to the Pi, the service is down, or you're rebuilding the environment.
-**Do NOT use it for**: diagnosing call-flow bugs once the service is up (`intercom-debugging-playbook`), or local development (`intercom-testing-and-validation`).
+**Do NOT use it for**: diagnosing call-flow bugs once the service is up (`intercom-debugging-playbook`), local development (`intercom-testing-and-validation`), or general cloudflared configuration facts — ingress rule semantics, Access wiring, service-install gotchas — which live in `cloudflared-tunnels`.
 
 README's Setup section (steps 1–6) is the doc of record for from-scratch installation. This skill assumes it exists and adds what README doesn't: day-2 operations.
 
