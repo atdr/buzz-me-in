@@ -135,18 +135,28 @@ cloudflared tunnel create intercom
 cloudflared tunnel route dns intercom intercom.yourdomain.com
 ```
 
-Create `~/.cloudflared/config.yml`:
+`tunnel create` writes a credentials JSON to `~/.cloudflared/<tunnel-id>.json`. The UUID is in the create output, the credentials filename, and `cloudflared tunnel info intercom`. Keep these credentials private alongside `cert.pem`:
+
+```bash
+chmod 600 ~/.cloudflared/cert.pem ~/.cloudflared/*.json
+```
+
+Create `~/.cloudflared/config.yml` (adjust `/home/pi` if you run as a different user):
 
 ```yaml
 tunnel: <tunnel-id-from-create-output>
 credentials-file: /home/pi/.cloudflared/<tunnel-id>.json
 ingress:
-  - service: http://localhost:8080
+  - hostname: intercom.yourdomain.com
+    service: http://localhost:8080
+  # anything else routed to this tunnel gets a 404 instead of the intercom
+  - service: http_status:404
 ```
 
-Test the tunnel manually:
+Validate the config, then test the tunnel manually:
 
 ```bash
+cloudflared tunnel ingress validate
 cloudflared tunnel run intercom
 curl https://intercom.yourdomain.com/healthz
 ```
@@ -185,17 +195,24 @@ After pairing you will see:
 
 ### 6. Install systemd units (production)
 
+Install the tunnel as a service using cloudflared's built-in installer. It copies the config to `/etc/cloudflared/config.yml`, writes its own systemd unit, and enables and starts it in one step. The explicit `--config` matters: under `sudo`, cloudflared searches root's config locations and would not find files in your home directory.
+
 ```bash
-# Copy unit files
-sudo cp intercom.service    /etc/systemd/system/
-sudo cp cloudflared.service /etc/systemd/system/
+sudo cloudflared --config ~/.cloudflared/config.yml service install
+```
+
+Future tunnel config edits go in `/etc/cloudflared/config.yml`, followed by `sudo systemctl restart cloudflared`.
+
+Install the intercom server unit:
+
+```bash
+sudo cp intercom.service /etc/systemd/system/
 
 # Edit WorkingDirectory and User in intercom.service if your paths differ
 sudo nano /etc/systemd/system/intercom.service
 
 sudo systemctl daemon-reload
-sudo systemctl enable cloudflared intercom
-sudo systemctl start  cloudflared intercom
+sudo systemctl enable --now intercom
 
 # Check status
 sudo systemctl status cloudflared
@@ -388,7 +405,6 @@ curl https://intercom.yourdomain.com/readyz
 ├── tests/                  # node --test suites (*.test.cjs)
 ├── docs/                   # architecture and testing guides
 ├── intercom.service        # systemd unit for the Node.js server
-├── cloudflared.service     # systemd unit for the Cloudflare Tunnel
 ├── commitlint.config.js    # conventional commit rules (enforced by hooks + CI)
 ├── .env.example            # environment variable template
 └── package.json
