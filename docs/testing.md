@@ -67,7 +67,9 @@ The runtime exports singleton-style modules. Tests should avoid relying on test 
 
 ## CI notes
 
-CI runs all five gates (lint, format check, syntax check, typecheck, tests) plus `npm audit --audit-level=high` on Node 20, 22, and 24. Pull requests additionally run commitlint over the branch commits and a conventional PR title check.
+CI runs all five gates (lint, format check, syntax check, typecheck, tests) on Node 20, 22, and 24. Pull requests additionally run commitlint over the branch commits and a conventional PR title check.
+
+A separate `Dependency audit` job runs `npm audit --audit-level=high` twice. The blocking run adds `--omit=dev`, so only advisories reaching the deployed dependency tree fail CI; the second run covers the whole tree and is `continue-on-error`, surfacing build-tool advisories as a warning without blocking unrelated PRs. It is deliberately outside the quality-gate job — an audit result reflects the advisory database at a point in time rather than the diff under review, and while it ran first inside that job any advisory masked lint, tests, and typecheck. Dev-tree advisories are fixed by Dependabot security updates rather than by hand; a red audit check now means genuine production exposure.
 
 Locally, husky hooks (installed automatically by `npm install`) run commitlint on each commit message and lint-staged (ESLint + Prettier on staged files) before each commit.
 

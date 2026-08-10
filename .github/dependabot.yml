@@ -13,6 +13,14 @@ updates:
         update-types:
           - minor
           - patch
+      # Security updates (enabled in repo settings, not here) are raised per
+      # advisory by default; group them so a batch of advisories lands as one
+      # PR rather than one each. `applies-to` defaults to version-updates,
+      # which is why the group above needs no such key.
+      security-updates:
+        applies-to: security-updates
+        patterns:
+          - '*'
 
   # Moving major tags (@v5) absorb minor/patch action updates automatically
   # but never cross majors; this surfaces new major versions as PRs.
