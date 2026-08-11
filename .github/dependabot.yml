@@ -5,20 +5,30 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    # `prefix` covers production dependencies, `prefix-development` the rest.
+    # Production bumps ship to the Pi, so they land as `fix` and release-please
+    # cuts a patch release with a changelog line — matching how production
+    # advisories were fixed by hand (`35d0458`, `071e55a`). Dev-tooling bumps
+    # stay `chore` and release-silent.
     commit-message:
-      prefix: chore(deps)
+      prefix: fix(deps)
+      prefix-development: chore(deps)
     groups:
       dev-dependencies:
         dependency-type: development
         update-types:
           - minor
           - patch
-      # Security updates (enabled in repo settings, not here) are raised per
-      # advisory by default; group them so a batch of advisories lands as one
-      # PR rather than one each. `applies-to` defaults to version-updates,
-      # which is why the group above needs no such key.
-      security-updates:
+      # Security updates are enabled in repo settings, not here. This group
+      # covers development advisories ONLY — they batch into one
+      # release-silent `chore` PR, mirroring their advisory-only status in
+      # the CI audit. Production advisories are deliberately left ungrouped:
+      # they land as individual `fix` PRs that block CI and cut a release.
+      # `applies-to` defaults to version-updates, which is why the group
+      # above needs no such key.
+      dev-security-updates:
         applies-to: security-updates
+        dependency-type: development
         patterns:
           - '*'
 

@@ -52,6 +52,7 @@ grep -rn "myModuleName\|my-env-var\|my-log-message" README.md docs/ AGENTS.md .e
 
 - **Local hooks (husky, installed by `npm install`)**: `commit-msg` runs commitlint; `pre-commit` runs lint-staged (ESLint + Prettier on staged files only).
 - **CI on every PR** (`.github/workflows/ci.yml`): the five gates on Node 20, 22, and 24; a separate `Dependency audit` job (`npm audit --audit-level=high`, blocking with `--omit=dev` and advisory-only across the whole tree); plus commitlint over branch commits (dependabot commits exempted) and the conventional-PR-title check.
+- **Dependencies** (`.github/dependabot.yml`): weekly version updates, plus security updates enabled in repo settings rather than in the config. Production bumps arrive as `fix(deps)` and therefore cut a patch release; development bumps arrive as `chore(deps)` and are release-silent. Dev security advisories batch into one grouped PR; production ones arrive individually.
 - **Releases** (`.github/workflows/release-please.yml`): release-please maintains a release PR on `main`; merging it tags a release. You never hand-edit versions or changelogs.
 - **Pre-approved commands** for agents (`.claude/settings.json` allowlist): the five gates, `git status/diff/log/show/branch`, `gh pr view/checks/list`, `npx prettier --check`, `npx commitlint`.
 
@@ -69,4 +70,4 @@ Written 2026-07-04 against commit `d377b02`. Re-verify:
 - Allowed commit types: AGENTS.md "Git workflow" section · `grep -n -A 8 "types:" .github/workflows/pr-title.yml` · dependabot exemption: `grep -n "ignores" commitlint.config.js`
 - Gates list: `grep -n '"scripts"' -A 10 package.json`
 - CI matrix and audit level: `grep -n "node-version\|audit-level" .github/workflows/ci.yml`
-- Dependency security policy: `grep -n -B 4 "omit=dev" .github/workflows/ci.yml` · `grep -n "applies-to" .github/dependabot.yml`
+- Dependency security policy: `grep -n -B 4 "omit=dev" .github/workflows/ci.yml` · `grep -n "applies-to\|prefix" .github/dependabot.yml`
