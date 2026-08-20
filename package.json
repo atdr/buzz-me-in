@@ -29,7 +29,7 @@
     "dotenv": "^17.4.2",
     "hap-nodejs": "^0.14.2",
     "qrcode-terminal": "^0.12.0",
-    "twilio": "^6.0.2",
+    "twilio": "^6.1.0",
     "websocket": "^1.0.35",
     "zod": "^4.4.3"
   },
