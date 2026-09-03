@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.0.1](https://github.com/atdr/twilio-homekit-intercom/compare/v1.0.0...v1.0.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **deps:** bump qs from 6.15.2 to 6.16.0 ([#69](https://github.com/atdr/twilio-homekit-intercom/issues/69)) ([58ec60d](https://github.com/atdr/twilio-homekit-intercom/commit/58ec60daf8de482b03fba6e6993e4c41c99a305c))
+* **deps:** bump twilio from 6.0.2 to 6.1.0 ([#65](https://github.com/atdr/twilio-homekit-intercom/issues/65)) ([86fa299](https://github.com/atdr/twilio-homekit-intercom/commit/86fa29987cea74177ace23b939ef63c40186f3d7))
+* **deps:** bump zod from 4.4.3 to 4.5.4 ([#71](https://github.com/atdr/twilio-homekit-intercom/issues/71)) ([8c98f79](https://github.com/atdr/twilio-homekit-intercom/commit/8c98f79c464c9c5079f1204cce77335588e2095a))
+
 ## 1.0.0 (2026-07-26)
 
 
