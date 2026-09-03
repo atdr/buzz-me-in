@@ -1,6 +1,6 @@
 {
   "name": "twilio-homekit-intercom",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "HomeKit-compatible apartment intercom via Twilio media streams",
   "main": "server.js",
   "scripts": {
