@@ -31,7 +31,7 @@
     "qrcode-terminal": "^0.12.0",
     "twilio": "^6.1.0",
     "websocket": "^1.0.35",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.2",
