@@ -36,6 +36,14 @@ and the changelog read. Releases are automated with release-please, which derive
 version bumps and the changelog from commit types — `feat` commits trigger a minor
 bump, `fix` a patch.
 
+Merging the release PR also publishes to npm as `buzz-me-in`, from
+`.github/workflows/publish-release.yml`. Prereleases are a manual dispatch of
+`publish-prerelease.yml`. Both authenticate over OIDC trusted publishing, so there
+is no `NPM_TOKEN` stored anywhere and provenance is attached automatically; the
+trusted publisher itself is configured on npmjs.com against the package. Both
+workflows are guarded by `tests/publish-*-workflow.test.cjs` — fix the workflow,
+not the test.
+
 ## Quality gates
 
 Run `npm install` first if `node_modules` is absent, then run all five gates before
