@@ -3,6 +3,17 @@
   "version": "1.0.1",
   "description": "HomeKit-compatible apartment intercom via Twilio media streams",
   "main": "server.js",
+  "bin": {
+    "buzz-me-in": "./server.js"
+  },
+  "files": [
+    "server.js",
+    "homekit.js",
+    "twilio-api.js",
+    "src/",
+    "intercom.service",
+    ".env.example"
+  ],
   "scripts": {
     "start": "node server.js",
     "lint": "eslint .",
@@ -11,9 +22,13 @@
     "check": "node --check server.js homekit.js twilio-api.js src/core/*.js",
     "test": "DOTENV_CONFIG_PATH=/dev/null node --test",
     "typecheck": "tsc --noEmit",
-    "prepare": "husky"
+    "prepare": "husky || true"
   },
   "license": "MIT",
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/atdr/buzz-me-in.git"

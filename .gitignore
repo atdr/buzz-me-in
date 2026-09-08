@@ -13,6 +13,10 @@ lerna-debug.log*
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
+# HomeKit pairing state written by node-persist into the working directory.
+# Contains long-term keys — never commit it.
+persist/
+
 # Runtime data
 pids
 *.pid

@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 // based on https://github.com/twilio/media-streams/blob/master/node/basic/README.md
 'use strict';
 
