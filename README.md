@@ -1,4 +1,6 @@
-# HomeKit Intercom
+# buzz-me-in
+
+Apartment intercom to Apple HomeKit, bridged over Twilio.
 
 A Raspberry Pi server that bridges an apartment intercom system into Apple HomeKit. When someone presses the intercom buzzer, your iPhone/HomePod receives a doorbell notification with a live camera tile. You can hear the caller, speak back, and unlock the door — all from the Home app or via Siri.
 
@@ -95,7 +97,7 @@ The health endpoints are deliberately unauthenticated so systemd checks, uptime 
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/atdr/twilio-homekit-intercom.git intercom
+git clone https://github.com/atdr/buzz-me-in.git intercom
 cd intercom
 npm install
 ```

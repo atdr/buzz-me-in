@@ -1,5 +1,5 @@
 {
-  "name": "twilio-homekit-intercom",
+  "name": "buzz-me-in",
   "version": "1.0.1",
   "description": "HomeKit-compatible apartment intercom via Twilio media streams",
   "main": "server.js",
@@ -16,11 +16,11 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/atdr/twilio-homekit-intercom.git"
+    "url": "git+https://github.com/atdr/buzz-me-in.git"
   },
-  "homepage": "https://github.com/atdr/twilio-homekit-intercom",
+  "homepage": "https://github.com/atdr/buzz-me-in",
   "bugs": {
-    "url": "https://github.com/atdr/twilio-homekit-intercom/issues"
+    "url": "https://github.com/atdr/buzz-me-in/issues"
   },
   "engines": {
     "node": ">=20"
