@@ -14,7 +14,12 @@ WorkingDirectory=/home/pi/intercom
 # Load environment variables from .env file
 EnvironmentFile=/home/pi/intercom/.env
 
-ExecStart=/usr/bin/node server.js
+# Resolved from PATH rather than hardcoded: the npm global prefix varies by
+# install method (`npm prefix -g`) — /usr/local for Debian's apt nodejs, /usr
+# for NodeSource — and systemd's default PATH covers both. If npm's prefix is
+# elsewhere, such as under nvm, use an absolute ExecStart or prepend the
+# prefix with Environment=PATH=...
+ExecStart=/usr/bin/env buzz-me-in
 
 # Sandboxing — the service only needs its working directory, the network,
 # and a private /tmp (SDP files with SRTP keys live there).
