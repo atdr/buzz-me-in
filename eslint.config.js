@@ -14,6 +14,11 @@ module.exports = [
       sourceType: 'commonjs',
       globals: {
         ...globals.nodeBuiltin,
+        // nodeBuiltin omits the CommonJS module globals, but sourceType above
+        // is commonjs and the workflow drift guards resolve fixtures relative
+        // to their own file.
+        __dirname: 'readonly',
+        __filename: 'readonly',
       },
     },
     rules: {
