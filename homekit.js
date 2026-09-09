@@ -766,14 +766,22 @@ function setOnHapSessionStarted(handler) {
 /**
  * Graceful shutdown: tear down streaming sessions and unpublish the
  * accessory so the mDNS advertisement does not linger after exit.
+ *
+ * MUST be unpublish(), never destroy(). Both tear down the HAP server and the
+ * mDNS advertiser, but destroy() additionally calls
+ * Accessory.cleanupAccessoryData(), which deletes AccessoryInfo,
+ * IdentifierCache and ControllerStorage from persist/ — i.e. it erases every
+ * HomeKit pairing. destroy() means "this accessory is gone for good"; a
+ * restart is not that. Using it here silently unpaired the accessory on every
+ * clean stop, restart and reboot.
  */
 function shutdown() {
   endHapSession();
   removeSdpDir();
-  accessory.destroy().catch((error) => {
-    logger.error('Failed to destroy HAP accessory during shutdown', {
-      event: 'accessory-destroy-failed',
-      reason: 'destroy-threw',
+  accessory.unpublish().catch((error) => {
+    logger.error('Failed to unpublish HAP accessory during shutdown', {
+      event: 'accessory-unpublish-failed',
+      reason: 'unpublish-threw',
       error,
     });
   });
