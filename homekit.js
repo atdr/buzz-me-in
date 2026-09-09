@@ -692,7 +692,7 @@ if (process.stdout.isTTY) {
   });
   qrcode.generate(accessory.setupURI(), { small: true });
 } else {
-  logger.info('Pairing QR suppressed on non-interactive stdout; pair with HAP_PINCODE from .env', {
+  logger.info('Pairing QR suppressed on non-interactive stdout; reprint it with buzz-me-in --qr', {
     event: 'accessory-qr-suppressed',
     reason: 'stdout-not-tty',
   });
