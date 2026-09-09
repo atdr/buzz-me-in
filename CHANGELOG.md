@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.0.1](https://github.com/atdr/buzz-me-in/compare/v2.0.0...v2.0.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* **homekit:** stop erasing HomeKit pairings on every clean shutdown ([4536acf](https://github.com/atdr/buzz-me-in/commit/4536acffe4b8966b419d652ba85b963f3a3bb4ee))
+* **homekit:** stop erasing HomeKit pairings on every clean shutdown ([fe3d73e](https://github.com/atdr/buzz-me-in/commit/fe3d73e0a31e5219fd2dea95f65b3d12a3b75c9b))
+
 ## [2.0.0](https://github.com/atdr/buzz-me-in/compare/v1.0.1...v2.0.0) (2026-09-09)
 
 
