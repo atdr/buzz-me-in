@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.0](https://github.com/atdr/buzz-me-in/compare/v2.0.1...v2.1.0) (2026-09-09)
+
+
+### Features
+
+* **cli:** add --qr, --check, --help and --version to the bin ([#79](https://github.com/atdr/buzz-me-in/issues/79)) ([ae229da](https://github.com/atdr/buzz-me-in/commit/ae229da93286173553b2ce876e0899c55a209fda))
+
 ## [2.0.1](https://github.com/atdr/buzz-me-in/compare/v2.0.0...v2.0.1) (2026-09-09)
 
 
