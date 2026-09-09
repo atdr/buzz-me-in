@@ -62,16 +62,19 @@ Notes:
 - **Stale sessions self-heal**: a dead call's slot is reaped after `CALL_SESSION_STALE_SEC` (default 900 s). Restarting clears it immediately.
 - **HAP pairing data lives in `persist/` under the working directory** (`/home/pi/intercom/persist` — HAP-NodeJS stores it via node-persist, which resolves the directory relative to the process cwd; it is listed in `.gitignore` and `.prettierignore`). Restarts do NOT require re-pairing. Changing `HAP_USERNAME` effectively creates a new accessory and DOES require re-pairing.
 - **Before 2.0.1, every clean stop silently erased the pairing.** `shutdown()` called `accessory.destroy()`, and in HAP-NodeJS `destroy()` is not the counterpart of `publish()`: it calls `cleanupAccessoryData()`, deleting `AccessoryInfo`, `IdentifierCache` and `ControllerStorage` from `persist/`. Any `systemctl stop`, `systemctl restart` or `sudo reboot` sends SIGTERM, ran that handler, and unpaired every controller. Fixed in 2.0.1 by calling `unpublish()`, guarded by `tests/homekit-shutdown.test.cjs`. **If a Pi is still on 2.0.0 or earlier, back up `persist/` BEFORE stopping the service, not after.** A hard power-off never ran the handler, so it was the _safer_ of the two — the opposite of the usual advice.
+- **Inspect the pairing with `buzz-me-in --check`, not by reading the JSON.** From the working directory it prints the persist path, the accessory file and `pairedClients`. It starts no server and signals nothing, so it is safe against a live service, and it needs no `.env` (flags are dispatched before config loads, which matters because the env lives in `EnvironmentFile` and is absent from an SSH shell). `pairedClients: 0` on an accessory believed paired means the pairing is gone, not that the network is broken.
+- **Re-pairing needs `buzz-me-in --qr`, and it needs a pty.** The server prints the setup QR only to a TTY, so under systemd it never does. `--qr` reprints it from persisted state. It refuses a non-TTY on purpose, since the URI encodes the setup code: use `ssh -t <host> 'cd <working-directory> && buzz-me-in --qr'`. It also refuses if two `AccessoryInfo.*.json` files exist rather than guessing which is live. The QR is drawn light-modules-as-blocks, so it scans on a dark terminal background and inverts on a light one. Added in 2.1.0; on 2.0.1 or earlier there is no way to reprint it.
 - **The working directory is deliberately outside anything npm manages.** `sudo npm install -g buzz-me-in` writes only under `npm prefix -g`, so an upgrade cannot touch `.env` or `persist/`. Nothing in the deploy path deletes them, but copy `persist/` somewhere safe before any invasive work on the Pi.
 
 ## Outage discrimination (fastest split first)
 
-| Test                                                                     | Result | Conclusion                                                                                                                           |
-| ------------------------------------------------------------------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------ |
-| On the Pi: `curl localhost:8080/healthz`                                 | fails  | Server down → `journalctl -u intercom -b -o cat`, look for `[config]` (bad env → crash-loop), `uncaught-exception`, or port conflict |
-| Server OK locally, `curl https://$TUNNEL_HOSTNAME/healthz` from anywhere | fails  | Tunnel down → `journalctl -u cloudflared`, `cloudflared tunnel info intercom`                                                        |
-| Both OK but calls don't arrive                                           | —      | Twilio side → console → Phone Numbers → Voice webhook must be `https://{host}/twiml`, POST; check Twilio call log for webhook errors |
-| Calls arrive but misbehave                                               | —      | → `intercom-debugging-playbook`                                                                                                      |
+| Test                                                                     | Result             | Conclusion                                                                                                                           |
+| ------------------------------------------------------------------------ | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| On the Pi: `curl localhost:8080/healthz`                                 | fails              | Server down → `journalctl -u intercom -b -o cat`, look for `[config]` (bad env → crash-loop), `uncaught-exception`, or port conflict |
+| Server OK locally, `curl https://$TUNNEL_HOSTNAME/healthz` from anywhere | fails              | Tunnel down → `journalctl -u cloudflared`, `cloudflared tunnel info intercom`                                                        |
+| Both OK but calls don't arrive                                           | —                  | Twilio side → console → Phone Numbers → Voice webhook must be `https://{host}/twiml`, POST; check Twilio call log for webhook errors |
+| Calls arrive but misbehave                                               | —                  | → `intercom-debugging-playbook`                                                                                                      |
+| Home app shows "No Response": `buzz-me-in --check` in the working dir    | `pairedClients: 0` | Pairing gone, not a network fault → remove the accessory in Home and re-add with `buzz-me-in --qr` over `ssh -t`                     |
 
 ## From-scratch rebuild checklist (delta over README)
 
@@ -84,10 +87,10 @@ README steps 1–6 are complete and current. Additional hard-won specifics:
 
 ## Provenance and maintenance
 
-Written 2026-07-04 against commit `d377b02`. Updated 2026-07-12: the cloudflared unit is now generated by `cloudflared service install` instead of a repo-shipped unit file. Updated 2026-09-08: the project is published to npm as `buzz-me-in` and the Pi runs a global install, so the deploy loop is `npm install -g` rather than rsync. Re-verify:
+Written 2026-07-04 against commit `d377b02`. Updated 2026-07-12: the cloudflared unit is now generated by `cloudflared service install` instead of a repo-shipped unit file. Updated 2026-09-08: the project is published to npm as `buzz-me-in` and the Pi runs a global install, so the deploy loop is `npm install -g` rather than rsync. Updated 2026-09-09: 2.1.0 adds `buzz-me-in --check` and `--qr`, which replace hand-reading `persist/` and the ad hoc QR script. Re-verify:
 
 - Unit directives: `grep -n "ExecStart\|Restart\|EnvironmentFile\|After=" intercom.service` · on the Pi: `systemctl cat cloudflared`
 - Deploy loop: README "Deploying updates" section (doc of record)
 - Probe endpoints and auth: `grep -n "GET_ROUTES.set" server.js`
 - Stale/restart behaviour: `grep -n "CALL_SESSION_STALE_SEC" .env.example` · `grep -n "process.exit" server.js`
-- Pairing storage location: `ls ~/intercom/persist` on the Pi (should contain `AccessoryInfo.*.json` after pairing)
+- Pairing storage and state: `buzz-me-in --check` from the working directory on the Pi

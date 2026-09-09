@@ -202,6 +202,51 @@ After pairing you will see:
 - A **doorbell** tile (rings when the intercom calls)
 - A **lock** tile (tap to unlock — plays the DTMF unlock sequence, default `w9w`, configurable via `TWILIO_UNLOCK_DIGITS`)
 
+#### Re-pairing later, or checking the pairing
+
+Once the server runs under systemd its stdout is not a terminal, so it never prints the setup QR.
+Two flags read the pairing state directly instead. Neither starts the server, contacts HomeKit or
+signals the running service, so both are safe against a live deployment:
+
+```bash
+buzz-me-in --check   # persist directory, accessory file, and paired client count
+buzz-me-in --qr      # the setup QR, for Home app → Add Accessory
+```
+
+Three things to know before the QR works over SSH:
+
+- **`ssh -t` is required.** `ssh host "command"` allocates no pty, so stdout is not a TTY and the
+  command refuses by design: the URI encodes the setup code and must never reach a pipe or a log.
+  An interactive `ssh host` session already has a pty.
+- **Run it from the working directory**, the one holding `.env` and `persist/`. Pairing state is
+  read relative to the current directory, so elsewhere it reports finding nothing while the service
+  is perfectly healthy.
+- **Use a dark terminal background.** The QR is drawn with block characters that take the terminal's
+  foreground colour for the _light_ modules, so it scans on a dark background and comes out inverted
+  on a light one. If your phone will not lock onto it, switch profile before assuming anything is
+  broken.
+
+Putting those together, from the machine you are sitting at:
+
+```bash
+ssh -t <pi-host> 'cd <working-directory> && buzz-me-in --qr'
+```
+
+`--check` has no such constraints, prints no secret, and is safe to pipe or paste:
+
+```bash
+$ buzz-me-in --check
+persistDir    : /home/<user>/intercom/persist
+accessoryInfo : AccessoryInfo.XXXXXXXXXXXX.json
+category      : 18 (video doorbell)
+setupID       : present
+pairedClients : 4
+```
+
+`pairedClients: 0` on an accessory you believe is paired means the pairing is gone, not that the
+network is broken. See [docs/testing.md](docs/testing.md) and `tests/homekit-shutdown.test.cjs` for
+the failure that used to cause exactly that.
+
 ### 6. Install systemd units (production)
 
 Install the tunnel as a service using cloudflared's built-in installer. It copies the config to `/etc/cloudflared/config.yml`, writes its own systemd unit, and enables and starts it in one step. The explicit `--config` matters: under `sudo`, cloudflared searches root's config locations and would not find files in your home directory.
@@ -422,10 +467,11 @@ curl https://intercom.yourdomain.com/readyz
 
 ```text
 .
-├── server.js               # HTTP routes + WebSocket server; graceful shutdown
+├── server.js               # CLI flag dispatch; HTTP routes + WebSocket server; graceful shutdown
 ├── homekit.js              # HAP-NodeJS camera+doorbell accessory; ffmpeg pipelines
 ├── twilio-api.js           # Twilio REST API helpers (hangup)
 ├── src/core/
+│   ├── cli.js              # --qr/--check/--help/--version, dispatched before any other require
 │   ├── config.js           # validated env/config loading
 │   ├── log.js              # structured JSON-lines logger
 │   ├── media-stream.js     # Twilio media stream protocol (start/media/stop)

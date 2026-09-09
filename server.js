@@ -2,6 +2,25 @@
 // based on https://github.com/twilio/media-streams/blob/master/node/basic/README.md
 'use strict';
 
+// CLI flags are handled before every other require, and moving this down breaks
+// them: requiring ./homekit calls accessory.publish() at module scope, which
+// would put a second accessory on the network alongside the running service,
+// and requiring ./src/core/config throws on any missing env var, which under
+// systemd lives in EnvironmentFile and so is absent from an interactive shell.
+// A read-only query must touch neither. tests/cli.test.cjs pins this ordering.
+//
+// Writes are synchronous because process.exit() can truncate a pending async
+// write to a pipe.
+const cliFs = require('fs');
+const cliExit = require('./src/core/cli').run({
+  argv: process.argv.slice(2),
+  write: (text) => cliFs.writeSync(1, text),
+  writeErr: (text) => cliFs.writeSync(2, text),
+  isTTY: Boolean(process.stdout.isTTY),
+  cwd: process.cwd(),
+});
+if (cliExit !== null) process.exit(cliExit);
+
 const http = require('http');
 const twilio = require('twilio');
 const WebSocketServer = require('websocket').server;
