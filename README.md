@@ -1,4 +1,6 @@
-# HomeKit Intercom
+# buzz-me-in
+
+Apartment intercom to Apple HomeKit, bridged over Twilio.
 
 A Raspberry Pi server that bridges an apartment intercom system into Apple HomeKit. When someone presses the intercom buzzer, your iPhone/HomePod receives a doorbell notification with a live camera tile. You can hear the caller, speak back, and unlock the door — all from the Home app or via Siri.
 
@@ -92,18 +94,24 @@ The health endpoints are deliberately unauthenticated so systemd checks, uptime 
 
 ## Setup
 
-### 1. Clone and install
+Throughout this guide `pi@raspberrypi.local`, the `pi` user and `~/intercom` are the Raspberry Pi OS defaults, used as examples. Any host, user or directory works, as long as `WorkingDirectory`, `EnvironmentFile` and `User` in `intercom.service` are edited to match.
+
+### 1. Install
 
 ```bash
-git clone https://github.com/atdr/twilio-homekit-intercom.git intercom
-cd intercom
-npm install
+sudo npm install -g buzz-me-in
+command -v buzz-me-in   # sanity check; the bin lands under `npm prefix -g`
 ```
+
+Contributors work from a clone of the repository instead, with `npm install`. See `AGENTS.md` for the workflow and quality gates.
 
 ### 2. Environment variables
 
+The server reads `.env` from its working directory and writes HomeKit pairing state into `persist/` there, so that state stays separate from the global install npm manages:
+
 ```bash
-cp .env.example .env
+mkdir -p ~/intercom && cd ~/intercom
+cp "$(npm root -g)/buzz-me-in/.env.example" .env
 chmod 600 .env
 ```
 
@@ -180,10 +188,11 @@ Security hardening notes:
 
 ### 5. Pair with HomeKit
 
-Start the server:
+Start the server from the directory holding `.env`:
 
 ```bash
-node server.js
+cd ~/intercom
+buzz-me-in
 ```
 
 Open the **Home app** on your iPhone → **+** → **Add Accessory** → **More options** → you should see **Apartment Intercom**. Enter the pincode from your `.env` file (e.g. `XXX-XX-XXX`).
@@ -203,12 +212,14 @@ sudo cloudflared --config ~/.cloudflared/config.yml service install
 
 Future tunnel config edits go in `/etc/cloudflared/config.yml`, followed by `sudo systemctl restart cloudflared`.
 
-Install the intercom server unit:
+Install the intercom server unit, which ships inside the npm package:
 
 ```bash
-sudo cp intercom.service /etc/systemd/system/
+sudo cp "$(npm root -g)/buzz-me-in/intercom.service" /etc/systemd/system/
 
-# Edit WorkingDirectory and User in intercom.service if your paths differ
+# Edit WorkingDirectory, EnvironmentFile and User if your paths differ.
+# ExecStart needs no edit: it resolves buzz-me-in from systemd's PATH,
+# which covers both common npm global prefixes.
 sudo nano /etc/systemd/system/intercom.service
 
 sudo systemctl daemon-reload
@@ -221,12 +232,31 @@ sudo systemctl status intercom
 
 ### Deploying updates
 
-After the initial setup, ship code changes by copying the repo to the Pi and restarting the service:
+After the initial setup, ship a new release by installing it from npm and restarting:
 
 ```bash
-rsync -av --exclude node_modules --exclude .env ./ pi@raspberrypi.local:~/intercom/
-ssh pi@raspberrypi.local 'cd ~/intercom && npm install && sudo systemctl restart intercom'
+sudo npm install -g buzz-me-in@latest
+sudo systemctl restart intercom
 ```
+
+Nothing triggers this automatically. Upgrading is a manual step or a cron job you add yourself.
+
+### Upgrading from a git checkout
+
+Releases before 2.0.0 ran `node server.js` out of a working tree on the Pi. To move an existing deployment onto the published package, keep the working directory exactly as it is (`.env` and `persist/` do not move, so the HomeKit pairing survives), install the package globally, and replace the unit file:
+
+```bash
+sudo systemctl stop intercom
+tar czf ~/intercom-backup-$(date +%F).tgz -C ~ intercom --exclude=node_modules
+chmod 600 ~/intercom-backup-$(date +%F).tgz   # the archive contains .env
+
+sudo npm install -g buzz-me-in
+sudo cp "$(npm root -g)/buzz-me-in/intercom.service" /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl start intercom
+```
+
+Confirm the Home app still shows the accessory **without re-pairing** before deleting the old code from the working directory. Leave `.env` and `persist/` in place.
 
 ---
 
@@ -236,8 +266,11 @@ Work through these stages in order. Each has a clear pass/fail check before wiri
 
 ### Stage 1 — Server starts cleanly
 
+Run from the working directory holding `.env`, so config and pairing state resolve:
+
 ```bash
-node server.js
+cd ~/intercom
+buzz-me-in
 curl http://localhost:8080/healthz
 curl http://localhost:8080/readyz
 ```
@@ -409,6 +442,10 @@ curl https://intercom.yourdomain.com/readyz
 ├── .env.example            # environment variable template
 └── package.json
 ```
+
+The npm package ships only what the server needs at runtime: `server.js`, `homekit.js`, `twilio-api.js`, `src/`, `intercom.service`, `.env.example`, plus `README.md`, `LICENSE` and `package.json`. Everything else above, including `tests/`, `docs/`, `.github/` and `.claude/`, is repo-only. `package.json`'s `files` array is the allowlist; `npm pack --dry-run` prints exactly what would be published.
+
+Runtime state lives in the working directory rather than the install: `.env` and `persist/` (HomeKit pairing, containing long-term keys) are read and written relative to `WorkingDirectory`, so a global npm install never touches them.
 
 ## Environment variables
 

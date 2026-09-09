@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - main
+
+# Scoped per job: the publish job must not hold a writable contents token.
+permissions: {}
+
+jobs:
+  release-please:
+    name: Maintain release PR (release-please)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@v5
+        with:
+          release-type: node
+
+  # Gated on release-please's own output rather than a separate `on: release`
+  # workflow: release-please runs with the default GITHUB_TOKEN, and GitHub does
+  # not trigger workflow runs from events that token creates, so a release-
+  # triggered workflow would never fire and never report an error either.
+  publish:
+    name: Publish to npm
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm-release # scopes the OIDC token so npm's trusted publisher can require it
+    permissions:
+      contents: read
+      id-token: write # OIDC for npm trusted publishing; provenance is automatic
+    steps:
+      - name: Checkout the released tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.release-please.outputs.tag_name }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          # trusted publishing needs npm >= 11.5.1, bundled with Node >= 24.5
+          node-version: 24.x
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        # Full install, not --omit=dev: the prepare script needs husky present.
+        run: npm ci
+
+      # npm tags whatever it publishes 'latest' unless --tag is passed; it infers
+      # nothing from a prerelease suffix. A prerelease only reaches this job from a
+      # deliberate Release-As footer, so publish it under its own identifier
+      # (1.2.0-beta.1 -> beta) rather than moving latest.
+      - name: Publish
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          case "$version" in
+            *-*)
+              tag=$(node -p 'process.argv[1].match(/-([a-z]+)/i)?.[1] ?? "next"' "$version")
+              npm publish --tag "$tag"
+              ;;
+            *) npm publish ;;
+          esac

@@ -1,0 +1,92 @@
+name: publish-prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Prerelease version to publish, e.g. 1.2.0-beta.1'
+        required: true
+      dist_tag:
+        description: "npm dist-tag to publish under (never 'latest')"
+        required: true
+        default: beta
+
+permissions: {}
+
+jobs:
+  publish-prerelease:
+    name: Publish prerelease to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm-prerelease # scopes the OIDC token so npm's trusted publisher can require it
+    permissions:
+      contents: read
+      id-token: write # OIDC for npm trusted publishing; provenance is automatic
+    env:
+      # Read through the environment rather than inlined into the run scripts,
+      # so a dispatch input can never be interpreted as shell.
+      VERSION: ${{ inputs.version }}
+      DIST_TAG: ${{ inputs.dist_tag }}
+    steps:
+      - name: Refuse a stable version or the latest dist-tag
+        run: |
+          case "$VERSION" in
+            *-*) ;;
+            *) echo "::error::'$VERSION' is not a prerelease version (expected a suffix, e.g. 1.2.0-beta.1)"; exit 1 ;;
+          esac
+          if [ "$DIST_TAG" = latest ]; then
+            echo "::error::refusing to move the latest dist-tag"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          # trusted publishing needs npm >= 11.5.1, bundled with Node >= 24.5
+          node-version: 24.x
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Runner-local bump, never committed: main keeps its released version and
+      # the pending release-please PR keeps proposing a clean next version.
+      - name: Bump the version on the runner only
+        run: npm version "$VERSION" --no-git-tag-version
+
+      - name: Publish
+        run: npm publish --tag "$DIST_TAG"
+
+  tag-prerelease:
+    # Records which commit a given beta was built from, so that when a tester
+    # reports against 1.2.0-beta.4, `git log prerelease/1.2.0-beta.4..main` says
+    # exactly what has landed since. Runs after the publish so the tag only ever
+    # marks a version that reached npm, and lives in its own job so the
+    # publishing job's token stays read-only.
+    name: Tag the published commit
+    needs: publish-prerelease
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Tag the published commit
+        env:
+          VERSION: ${{ inputs.version }}
+          DIST_TAG: ${{ inputs.dist_tag }}
+          GH_TOKEN: ${{ github.token }}
+        # A plain ref, never a GitHub Release: release-please reads the Releases
+        # API to find the last release and does not filter out prereleases, so a
+        # published 1.2.0-beta.5 Release would outrank v1.1.0 and become the base
+        # it bumps from. Bare tags are only its third-choice fallback, unreachable
+        # while a release PR or Release exists, so they are inert. The
+        # 'prerelease/' prefix is belt-and-braces, and keeps `git tag -l 'v*'`
+        # meaning released versions.
+        run: |
+          gh api "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/prerelease/$VERSION" \
+            -f "sha=$GITHUB_SHA" >/dev/null
+          echo "tagged $GITHUB_SHA as prerelease/$VERSION (npm dist-tag: $DIST_TAG)"
