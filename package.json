@@ -1,6 +1,6 @@
 {
   "name": "buzz-me-in",
-  "version": "2.0.1",
+  "version": "2.1.0",
   "description": "HomeKit-compatible apartment intercom via Twilio media streams",
   "main": "server.js",
   "bin": {
