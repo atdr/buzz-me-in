@@ -35,6 +35,12 @@ npm run test
 - `tests/ws-events-schema.test.cjs` - Twilio WS envelope and media payload validation
 - `tests/mulaw-audio.test.cjs` - mu-law encode/decode, DTMF and ringback generation, WAV rendering
 - `tests/log.test.cjs` - structured logger output, levels, and error normalization
+- `tests/twilio-ids.test.cjs` - Twilio identifier normalization
+- `tests/return-audio-sdp.test.cjs` - return-audio SDP generation and teardown
+- `tests/homekit-shutdown.test.cjs` - the shutdown path unpublishes and never destroys (pairing-loss guard)
+- `tests/cli.test.cjs` - `--qr`/`--check`/`--help`/`--version`, plus the hap-nodejs and node-persist behaviours they rest on
+- `tests/publish-release-workflow.test.cjs` - release publish workflow guards
+- `tests/publish-prerelease-workflow.test.cjs` - prerelease publish workflow guards
 - `tests/helpers/env.cjs` - env/module-cache test helpers
 
 ## When adding new tests

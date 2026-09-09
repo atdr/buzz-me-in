@@ -29,6 +29,9 @@ This document focuses on stable architecture concepts. It intentionally avoids t
   - validated environment/config loading
 - `src/core/log.js`
   - lightweight structured logging (JSON lines)
+- `src/core/cli.js`
+  - read-only CLI queries against persisted pairing state (`--qr`, `--check`, `--help`, `--version`)
+  - not part of the running server: `server.js` dispatches to it before any other require, because requiring `homekit.js` publishes an accessory at module scope and `config.js` throws on a missing env var
 
 ## Request and media flow
 
