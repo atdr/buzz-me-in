@@ -30,11 +30,24 @@ gates stay in CI and remain the documented pre-PR step.
 
 **Pull requests** target `main`, merge in dependency order, and must pass all five
 quality gates (below) locally before being opened. PR titles use the same
-conventional format as commits (`type(scope): summary`, enforced in CI) — if a PR
-is ever squash-merged, the title becomes the commit on `main` that release-please
-and the changelog read. Releases are automated with release-please, which derives
-version bumps and the changelog from commit types — `feat` commits trigger a minor
-bump, `fix` a patch.
+conventional format as commits (`type(scope): summary`, enforced in CI) because the
+title becomes the commit on `main` that release-please and the changelog read.
+
+**Squash-merge every PR.** `gh pr merge <n> --squash`, and the repository allows no
+other method. A merge commit made by `gh pr merge --merge` carries the PR title in
+its _body_, which release-please parses as a second conventional commit and emits as
+a duplicate changelog entry — this produced two identical lines under 2.0.1 before
+the method was pinned. Squashing also keeps one commit per change on `main`, so a
+revert is one `git revert`.
+
+Releases are automated with release-please, which derives version bumps and the
+changelog from commit types — `feat` commits trigger a minor bump, `fix` a patch.
+
+**Release PRs need their CI approved before merging.** release-please authors them
+with the default `GITHUB_TOKEN`, so their workflow runs sit in `action_required` and
+`gh pr checks` reports _no checks at all_, which reads as nothing-failing. Find them
+with `gh run list --branch <head> --json conclusion,workflowName,databaseId --jq '.[] | select(.conclusion=="action_required")'`
+and approve with `gh api --method POST repos/<owner>/<repo>/actions/runs/<id>/approve`.
 
 Merging the release PR also publishes to npm as `buzz-me-in`, from
 `.github/workflows/publish-release.yml`. Prereleases are a manual dispatch of
