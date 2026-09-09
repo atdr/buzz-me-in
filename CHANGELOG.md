@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.0](https://github.com/atdr/buzz-me-in/compare/v1.0.1...v2.0.0) (2026-09-09)
+
+
+### ⚠ BREAKING CHANGES
+
+* **deploy:** the service now runs from a global npm install. ExecStart changes to the npm global bin and the shipped unit no longer works against a git checkout. Install with `sudo npm install -g buzz-me-in` before restarting. See README "Upgrading from a git checkout".
+
+### Features
+
+* **deploy:** run the service from a global npm install ([9f5459f](https://github.com/atdr/buzz-me-in/commit/9f5459fccc1856c98acab1026b1df7c0ee9fa575))
+* **packaging:** publish as an unscoped npm package ([d397220](https://github.com/atdr/buzz-me-in/commit/d397220a61495a3b16ed82c9a0d9aaf1ae3b2d2b))
+
 ## [1.0.1](https://github.com/atdr/twilio-homekit-intercom/compare/v1.0.0...v1.0.1) (2026-09-03)
 
 
