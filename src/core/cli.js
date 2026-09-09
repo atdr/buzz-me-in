@@ -239,7 +239,7 @@ function run({ argv, write, writeErr, isTTY, cwd }) {
   const uri = computeSetupUri(info);
   const qrcode = require('qrcode-terminal');
 
-  write('\n  Home app -> Add Accessory -> More options -> scan this:\n\n');
+  write('\n  Home app → Add Accessory → scan this:\n\n');
   qrcode.generate(uri, { small: true }, (/** @type {string} */ rendered) => write(rendered));
   write(`\n  Paired clients right now: ${pairedClients}\n\n`);
   return 0;

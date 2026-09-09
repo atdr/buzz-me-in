@@ -210,7 +210,7 @@ signals the running service, so both are safe against a live deployment:
 
 ```bash
 buzz-me-in --check   # persist directory, accessory file, and paired client count
-buzz-me-in --qr      # the setup QR, for Add Accessory → More options
+buzz-me-in --qr      # the setup QR, for Home app → Add Accessory
 ```
 
 Three things to know before the QR works over SSH:
