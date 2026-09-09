@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.1.1](https://github.com/atdr/buzz-me-in/compare/v2.1.0...v2.1.1) (2026-09-09)
+
+
+### Bug Fixes
+
+* **homekit:** point the suppressed-QR log at buzz-me-in --qr ([#81](https://github.com/atdr/buzz-me-in/issues/81)) ([eef30bd](https://github.com/atdr/buzz-me-in/commit/eef30bdaf4998b53cbb7869717760d4e62332d6f))
+
 ## [2.1.0](https://github.com/atdr/buzz-me-in/compare/v2.0.1...v2.1.0) (2026-09-09)
 
 
