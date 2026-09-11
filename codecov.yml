@@ -1,0 +1,12 @@
+# Codecov reports; it does not gate. Without `informational`, Codecov adds two
+# status checks it owns to every pull request, and a check this repo does not
+# control is exactly the kind that can look green while never having run.
+# CI is the source of truth for whether a change may merge.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true

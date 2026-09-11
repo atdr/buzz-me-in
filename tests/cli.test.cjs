@@ -196,12 +196,12 @@ test("node-persist's default storage dir is still a relative 'persist'", () => {
 });
 
 test('server.js handles CLI flags before requiring homekit or config', () => {
-  // server.js cannot be require()d here: it starts an HTTP server. Requiring
-  // ./homekit publishes a HomeKit accessory at module scope, so a --qr run that
-  // reached it would advertise a second accessory alongside the live service;
-  // requiring ./src/core/config throws on any missing env var. Both are wrong
-  // for a read-only query, and both are easy to reintroduce by tidying the
-  // requires into alphabetical order.
+  // Asserted against the source rather than by requiring server.js. Requiring it
+  // is now harmless (main() is gated on require.main, and homekit.js publishes
+  // only from start(); tests/coverage.test.cjs guards both), but it would pull in
+  // ./src/core/config, which throws on any missing env var — still wrong for a
+  // read-only query, and still easy to reintroduce by tidying the requires into
+  // alphabetical order.
   const source = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
 
   const cliRun = source.indexOf("require('./src/core/cli').run(");

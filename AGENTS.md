@@ -72,6 +72,55 @@ npm run test         # node --test
 
 `npm run format` applies Prettier fixes in place.
 
+## Coverage
+
+CI also runs a **Coverage report** job, which like the dependency audit is not one of the
+five gates. It re-runs the suite under V8 instrumentation to produce `lcov.info` and
+uploads it to Codecov, which supplies the README badge and per-PR comments. The Node
+matrix is what proves the suite passes; coverage only reports on it. Codecov's own status
+checks are `informational` in `codecov.yml` so they can never block a merge, and the
+upload step is `continue-on-error`. The coverage run itself stays blocking.
+
+CI calls the local script rather than its own command line, so the two cannot drift:
+
+```bash
+npm run coverage   # needs Node >= 22.5; writes lcov.info (gitignored)
+```
+
+Three things in it are load-bearing and worth not "tidying away":
+
+- `--test-coverage-include`, pinned to the `files` array in `package.json`, so the
+  measurement is exactly what ships. Without it V8 reports every file that was loaded,
+  which pulls in `tests/` and the helper shims.
+- `--require ./tests/helpers/coverage-preload.cjs`. V8 reports **nothing at all** for a
+  file no test ever loaded, rather than reporting it at 0%. `server.js`, `homekit.js` and
+  `twilio-api.js` are required by no test, so dropping the preload does not lower the
+  score — it deletes the three least-tested shipped modules from the report and raises it.
+- `DOTENV_CONFIG_PATH=/dev/null`, the same guard `npm test` carries, so a local `.env`
+  cannot leak into the measured run.
+
+Coverage is kept out of the five gates because `--test-coverage-include` needs Node 22.5
+and this package still supports a `>=20` floor, where node exits on the unknown flag.
+`tests/coverage.test.cjs` guards all of the above.
+
+### Entry points are inert on require
+
+The preload above only works because neither entry point does anything when required:
+
+- `server.js` binds the port, installs the `SIGINT`/`SIGTERM`/`uncaughtException`
+  handlers, and calls `homekit.start()` inside `main()`. Its CLI block reads
+  `process.argv` only behind the same guard. The file ends with
+  `if (require.main === module) main();` and exports its internals.
+- `homekit.js` builds the accessory, services and camera controller at module scope —
+  all in-memory — but `accessory.publish()`, the pairing QR and `initSnapshot()` (which
+  spawns ffmpeg) live in `start()`.
+
+Keep it that way. Module-scope side effects here are not only a coverage problem: an
+`uncaughtException` handler installed by a bare require calls `process.exit(1)` on a
+test's own failure and reports it as a pass, and a module-scope `publish()` puts a second
+accessory on the network beside the running service. Both were real constraints before
+the split — see the comment in `src/core/cli.js`.
+
 ## Logging
 
 All runtime log output must go through the structured logger in `src/core/log.js`.

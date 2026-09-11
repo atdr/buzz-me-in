@@ -3,23 +3,29 @@
 'use strict';
 
 // CLI flags are handled before every other require, and moving this down breaks
-// them: requiring ./homekit calls accessory.publish() at module scope, which
-// would put a second accessory on the network alongside the running service,
-// and requiring ./src/core/config throws on any missing env var, which under
-// systemd lives in EnvironmentFile and so is absent from an interactive shell.
-// A read-only query must touch neither. tests/cli.test.cjs pins this ordering.
+// them: requiring ./src/core/config throws on any missing env var, which under
+// systemd lives in EnvironmentFile and so is absent from an interactive shell,
+// and requiring ./homekit pulls in that same config. A read-only query must
+// touch neither. tests/cli.test.cjs pins this ordering.
+//
+// The require.main guard keeps process.argv out of it when this file is loaded
+// as a library rather than run: a test or the coverage run would otherwise have
+// the test runner's own argv parsed as intercom flags. Everything below module
+// scope is likewise inert until main() runs.
 //
 // Writes are synchronous because process.exit() can truncate a pending async
 // write to a pipe.
-const cliFs = require('fs');
-const cliExit = require('./src/core/cli').run({
-  argv: process.argv.slice(2),
-  write: (text) => cliFs.writeSync(1, text),
-  writeErr: (text) => cliFs.writeSync(2, text),
-  isTTY: Boolean(process.stdout.isTTY),
-  cwd: process.cwd(),
-});
-if (cliExit !== null) process.exit(cliExit);
+if (require.main === module) {
+  const cliFs = require('fs');
+  const cliExit = require('./src/core/cli').run({
+    argv: process.argv.slice(2),
+    write: (text) => cliFs.writeSync(1, text),
+    writeErr: (text) => cliFs.writeSync(2, text),
+    isTTY: Boolean(process.stdout.isTTY),
+    cwd: process.cwd(),
+  });
+  if (cliExit !== null) process.exit(cliExit);
+}
 
 const http = require('http');
 const twilio = require('twilio');
@@ -369,12 +375,53 @@ function isAuthorizedForStatus(req) {
 // Start server
 // ---------------------------------------------------------------------------
 
-wsserver.listen(HTTP_SERVER_PORT, () => {
-  logger.info('Server listening', {
-    event: 'server-start',
-    port: HTTP_SERVER_PORT,
+/**
+ * Every side effect that reaches outside the process lives here: publishing the
+ * HomeKit accessory, binding the HTTP/WebSocket port, and installing the
+ * process-level signal and crash handlers. Module scope above only builds
+ * objects and registers in-process callbacks, so requiring this file from a
+ * test or the coverage run advertises nothing, binds nothing, and cannot
+ * install an uncaughtException handler that would swallow a test failure.
+ *
+ * homekit.start() comes first so the accessory is on the network before the
+ * port accepts a Twilio stream, which is the order the module-scope version
+ * produced and the order README's startup log example shows.
+ *
+ * @returns {void}
+ */
+function main() {
+  homekit.start();
+
+  wsserver.listen(HTTP_SERVER_PORT, () => {
+    logger.info('Server listening', {
+      event: 'server-start',
+      port: HTTP_SERVER_PORT,
+    });
   });
-});
+
+  process.on('SIGINT', () => beginShutdown('SIGINT'));
+  process.on('SIGTERM', () => beginShutdown('SIGTERM'));
+
+  // Exit on unexpected errors instead of continuing in an undefined state;
+  // systemd restarts the service.
+  process.on('uncaughtException', (err) => {
+    logger.error('Uncaught exception; exiting', {
+      event: 'uncaught-exception',
+      reason: 'uncaught-exception',
+      error: err,
+    });
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason) => {
+    logger.error('Unhandled promise rejection; exiting', {
+      event: 'unhandled-rejection',
+      reason: 'unhandled-rejection',
+      error: reason instanceof Error ? reason : new Error(String(reason)),
+    });
+    process.exit(1);
+  });
+}
 
 function beginShutdown(signal) {
   if (shuttingDown) return;
@@ -415,25 +462,15 @@ function beginShutdown(signal) {
   });
 }
 
-process.on('SIGINT', () => beginShutdown('SIGINT'));
-process.on('SIGTERM', () => beginShutdown('SIGTERM'));
+if (require.main === module) main();
 
-// Exit on unexpected errors instead of continuing in an undefined state;
-// systemd restarts the service.
-process.on('uncaughtException', (err) => {
-  logger.error('Uncaught exception; exiting', {
-    event: 'uncaught-exception',
-    reason: 'uncaught-exception',
-    error: err,
-  });
-  process.exit(1);
-});
-
-process.on('unhandledRejection', (reason) => {
-  logger.error('Unhandled promise rejection; exiting', {
-    event: 'unhandled-rejection',
-    reason: 'unhandled-rejection',
-    error: reason instanceof Error ? reason : new Error(String(reason)),
-  });
-  process.exit(1);
-});
+module.exports = {
+  main,
+  beginShutdown,
+  buildTwiml,
+  handleRequest,
+  isAuthorizedForStatus,
+  isValidTwilioRequest,
+  parseFormUrlEncoded,
+  readRequestBody,
+};

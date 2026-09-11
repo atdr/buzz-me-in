@@ -31,7 +31,7 @@ This document focuses on stable architecture concepts. It intentionally avoids t
   - lightweight structured logging (JSON lines)
 - `src/core/cli.js`
   - read-only CLI queries against persisted pairing state (`--qr`, `--check`, `--help`, `--version`)
-  - not part of the running server: `server.js` dispatches to it before any other require, because requiring `homekit.js` publishes an accessory at module scope and `config.js` throws on a missing env var
+  - not part of the running server: `server.js` dispatches to it before any other require, because `config.js` throws on a missing env var and `homekit.js` pulls in that same config. The entry points themselves are inert on require — `server.js` starts from `main()`, `homekit.js` publishes from `start()`, both gated on `require.main === module`
 
 ## Request and media flow
 
