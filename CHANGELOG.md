@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.2.0](https://github.com/atdr/buzz-me-in/compare/v2.1.1...v2.2.0) (2026-09-11)
+
+
+### Features
+
+* **server:** verify Twilio signature on the /media handshake ([#84](https://github.com/atdr/buzz-me-in/issues/84)) ([812a6cf](https://github.com/atdr/buzz-me-in/commit/812a6cff7fe6c08dca5422d4ce80038b89443a9d))
+
+
+### Bug Fixes
+
+* **homekit:** declare mono layout on the inbound audio input ([#87](https://github.com/atdr/buzz-me-in/issues/87)) ([f432af1](https://github.com/atdr/buzz-me-in/commit/f432af1fece8a7c1609617208cd9dc3fd5f76cfa))
+
 ## [2.1.1](https://github.com/atdr/buzz-me-in/compare/v2.1.0...v2.1.1) (2026-09-09)
 
 
