@@ -93,18 +93,33 @@ Three things in it are load-bearing and worth not "tidying away":
   measurement is exactly what ships. Without it V8 reports every file that was loaded,
   which pulls in `tests/` and the helper shims.
 - `--require ./tests/helpers/coverage-preload.cjs`. V8 reports **nothing at all** for a
-  file no test ever loaded, rather than reporting it at 0%. `twilio-api.js` is required by
-  no test, so dropping the preload does not lower the score — it deletes the least-tested
-  shipped module from the report and raises it.
+  file no test ever loaded, rather than reporting it at 0%. `server.js`, `homekit.js` and
+  `twilio-api.js` are required by no test, so dropping the preload does not lower the
+  score — it deletes the three least-tested shipped modules from the report and raises it.
 - `DOTENV_CONFIG_PATH=/dev/null`, the same guard `npm test` carries, so a local `.env`
   cannot leak into the measured run.
 
-`server.js` and `homekit.js` are deliberately out of scope: requiring `server.js` binds
-`PORT`, and requiring `homekit.js` publishes the HAP accessory and spawns ffmpeg, which
-leaves open handles and hangs `node --test`. The number covers `src/` plus
-`twilio-api.js`. Coverage is kept out of the five gates because `--test-coverage-include`
-needs Node 22.5 and this package still supports a `>=20` floor, where node exits on the
-unknown flag. `tests/coverage.test.cjs` guards all of the above.
+Coverage is kept out of the five gates because `--test-coverage-include` needs Node 22.5
+and this package still supports a `>=20` floor, where node exits on the unknown flag.
+`tests/coverage.test.cjs` guards all of the above.
+
+### Entry points are inert on require
+
+The preload above only works because neither entry point does anything when required:
+
+- `server.js` binds the port, installs the `SIGINT`/`SIGTERM`/`uncaughtException`
+  handlers, and calls `homekit.start()` inside `main()`. Its CLI block reads
+  `process.argv` only behind the same guard. The file ends with
+  `if (require.main === module) main();` and exports its internals.
+- `homekit.js` builds the accessory, services and camera controller at module scope —
+  all in-memory — but `accessory.publish()`, the pairing QR and `initSnapshot()` (which
+  spawns ffmpeg) live in `start()`.
+
+Keep it that way. Module-scope side effects here are not only a coverage problem: an
+`uncaughtException` handler installed by a bare require calls `process.exit(1)` on a
+test's own failure and reports it as a pass, and a module-scope `publish()` puts a second
+accessory on the network beside the running service. Both were real constraints before
+the split — see the comment in `src/core/cli.js`.
 
 ## Logging
 

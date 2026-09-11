@@ -10,8 +10,11 @@
 //
 // Nothing here starts a server, contacts HomeKit, or signals a running
 // instance. run() is called from server.js BEFORE any other require, because
-// requiring ./homekit publishes an accessory at module scope and requiring
-// ./src/core/config throws on a missing env var.
+// requiring ./src/core/config throws on a missing env var and ./homekit pulls
+// in that same config. Neither entry point acts on being required any more —
+// server.js starts from main() and homekit.js publishes from start() — so a
+// --qr run that reached them would no longer advertise a second accessory, but
+// it would still die on the missing env.
 
 const fs = require('fs');
 const path = require('path');

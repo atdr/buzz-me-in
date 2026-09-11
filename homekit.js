@@ -673,37 +673,68 @@ const cameraController = new CameraController({
 
 accessory.configureController(cameraController);
 
-accessory.publish({
-  username: config.hapUsername,
-  pincode: config.hapPincode,
-  port: config.hapPort,
-  category: Categories.VIDEO_DOORBELL,
-  advertiser: hap.MDNSAdvertiser.AVAHI,
-});
+// ---------------------------------------------------------------------------
+// Startup
+// ---------------------------------------------------------------------------
 
-logger.info('Accessory published', {
-  event: 'accessory-published',
-});
-// The setup QR encodes the pairing pincode, so only print it on an
-// interactive terminal — never into journald/log files.
-if (process.stdout.isTTY) {
-  logger.info('Accessory QR setup URI generated', {
-    event: 'accessory-qr-setup',
+let started = false;
+
+/**
+ * Put the accessory on the network and prepare the snapshot.
+ *
+ * Everything above this is in-memory construction; every side effect that
+ * reaches outside the process lives here. That split is deliberate: it lets
+ * server.js, a test, or the coverage run require this module without binding
+ * `HAP_PORT`, advertising a second accessory over Avahi alongside a live
+ * service, or spawning ffmpeg. server.js calls this from main().
+ *
+ * @returns {void}
+ */
+function start() {
+  if (started) {
+    logger.warn('Accessory start requested twice; ignoring', {
+      event: 'accessory-start-repeated',
+      reason: 'already-started',
+    });
+    return;
+  }
+  started = true;
+
+  accessory.publish({
+    username: config.hapUsername,
+    pincode: config.hapPincode,
+    port: config.hapPort,
+    category: Categories.VIDEO_DOORBELL,
+    advertiser: hap.MDNSAdvertiser.AVAHI,
   });
-  qrcode.generate(accessory.setupURI(), { small: true });
-} else {
-  logger.info('Pairing QR suppressed on non-interactive stdout; reprint it with buzz-me-in --qr', {
-    event: 'accessory-qr-suppressed',
-    reason: 'stdout-not-tty',
+
+  logger.info('Accessory published', {
+    event: 'accessory-published',
   });
+  // The setup QR encodes the pairing pincode, so only print it on an
+  // interactive terminal — never into journald/log files.
+  if (process.stdout.isTTY) {
+    logger.info('Accessory QR setup URI generated', {
+      event: 'accessory-qr-setup',
+    });
+    qrcode.generate(accessory.setupURI(), { small: true });
+  } else {
+    logger.info(
+      'Pairing QR suppressed on non-interactive stdout; reprint it with buzz-me-in --qr',
+      {
+        event: 'accessory-qr-suppressed',
+        reason: 'stdout-not-tty',
+      }
+    );
+  }
+
+  // Kick off snapshot generation asynchronously (non-blocking)
+  initSnapshot().then(() =>
+    logger.info('Snapshot initialized', {
+      event: 'snapshot-ready',
+    })
+  );
 }
-
-// Kick off snapshot generation asynchronously (non-blocking)
-initSnapshot().then(() =>
-  logger.info('Snapshot initialized', {
-    event: 'snapshot-ready',
-  })
-);
 
 // ---------------------------------------------------------------------------
 // Exports called by server.js
@@ -778,6 +809,9 @@ function setOnHapSessionStarted(handler) {
 function shutdown() {
   endHapSession();
   removeSdpDir();
+  // Nothing to tear down if start() never ran: unpublish() on an accessory
+  // that was never published has no HAP server or advertiser to stop.
+  if (!started) return;
   accessory.unpublish().catch((error) => {
     logger.error('Failed to unpublish HAP accessory during shutdown', {
       event: 'accessory-unpublish-failed',
@@ -788,6 +822,7 @@ function shutdown() {
 }
 
 module.exports = {
+  start,
   triggerDoorbell,
   setMulawPassthrough,
   clearMulawPassthrough,

@@ -41,9 +41,9 @@ npm run test
 - `tests/cli.test.cjs` - `--qr`/`--check`/`--help`/`--version`, plus the hap-nodejs and node-persist behaviours they rest on
 - `tests/publish-release-workflow.test.cjs` - release publish workflow guards
 - `tests/publish-prerelease-workflow.test.cjs` - prerelease publish workflow guards
-- `tests/coverage.test.cjs` - coverage script scope, preload, and Codecov job guards
+- `tests/coverage.test.cjs` - coverage script scope, preload, Codecov job, and entry-point inertness guards
 - `tests/helpers/env.cjs` - env/module-cache test helpers
-- `tests/helpers/coverage-preload.cjs` - loads `twilio-api.js` so coverage reports it
+- `tests/helpers/coverage-preload.cjs` - loads the entry points so coverage reports them
 
 ## When adding new tests
 
@@ -95,12 +95,14 @@ npm run coverage   # needs Node >= 22.5; writes lcov.info (gitignored)
 Two details in that script are load-bearing. `--test-coverage-include` is pinned to the
 `files` array in `package.json`, so the measurement is what ships rather than every file
 V8 happened to load. And `--require ./tests/helpers/coverage-preload.cjs` loads
-`twilio-api.js`, which no test requires: V8 reports _nothing_ for an unloaded file rather
-than reporting it at 0%, so dropping the preload would delete the least-tested shipped
-module from the report and raise the number. `server.js` and `homekit.js` stay out of
-scope because neither can be required in-process — one binds `PORT`, the other publishes
-the HAP accessory and spawns ffmpeg, hanging the runner on open handles. The headline
-figure therefore covers `src/` plus `twilio-api.js`.
+`server.js`, `homekit.js` and `twilio-api.js`, which no test requires: V8 reports
+_nothing_ for an unloaded file rather than reporting it at 0%, so dropping the preload
+would delete the three least-tested shipped modules from the report and raise the number.
+
+That preload is only possible because both entry points are inert when required —
+`server.js` starts from `main()` and `homekit.js` publishes from `start()`, both gated on
+`require.main === module`. See the "Entry points are inert on require" section in
+`AGENTS.md`; `tests/coverage.test.cjs` guards it.
 
 Locally, husky hooks (installed automatically by `npm install`) run commitlint on each commit message and lint-staged (ESLint + Prettier on staged files) before each commit.
 

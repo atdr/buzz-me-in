@@ -10,11 +10,12 @@
 // unpublish() alone tears down the HAP server and the mDNS advertiser, which
 // is all a restart should ever do.
 //
-// homekit.js cannot be require()d here: importing it loads config (needing a
-// full env) and spawns ffmpeg for the snapshot. So this asserts against the
-// source, and separately pins the upstream behaviour that makes destroy()
-// dangerous, so that if a future hap-nodejs makes destroy() safe this test
-// says so rather than silently over-constraining us.
+// homekit.js is not require()d here: importing it loads config, which needs a
+// full env this suite deliberately does not set. (Publishing and ffmpeg now
+// happen in start(), not on require.) So this asserts against the source, and
+// separately pins the upstream behaviour that makes destroy() dangerous, so
+// that if a future hap-nodejs makes destroy() safe this test says so rather
+// than silently over-constraining us.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');

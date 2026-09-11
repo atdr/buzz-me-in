@@ -9,19 +9,21 @@
 //
 // 1. Scope. V8 reports every file that was loaded, so without
 //    --test-coverage-include the report also covers tests/ and the helper shims. The
-//    include list is pinned to package.json's `files` array so what is measured is
-//    exactly what ships, minus the two entries below that cannot be loaded.
+//    include list is pinned to package.json's `files` array, so a newly shipped module
+//    fails here until it is measured rather than sitting silently outside the number.
 //
 // 2. Preload. V8 reports nothing at all for a file no test ever loaded, rather than
-//    reporting it at 0%. twilio-api.js is required by no test, so dropping the
-//    --require flag does not lower the score. It deletes the least-tested shipped
-//    module from the report and raises it.
+//    reporting it at 0%. server.js, homekit.js and twilio-api.js are required by no
+//    test, so dropping the --require flag does not lower the score. It deletes the
+//    three least-tested shipped modules from the report and raises it.
 //
-// 3. The exclusions stay honest. server.js and homekit.js are shipped code that this
-//    repo cannot preload: requiring server.js binds PORT, and requiring homekit.js
-//    publishes the HAP accessory and spawns ffmpeg, which leaves the test runner with
-//    open handles and hangs it. They are therefore named here rather than quietly
-//    missing, so the headline number is understood as "src/ plus twilio-api.js".
+// 3. Inert module scope. The preload can only load the two entry points because
+//    neither acts when required: server.js listens, installs signal handlers and
+//    parses CLI flags inside main(), homekit.js publishes the accessory and spawns
+//    ffmpeg inside start(), and both are gated on `require.main === module`. Undo that
+//    and the coverage run binds PORT, advertises a second accessory over Avahi next to
+//    the live service, and hangs `node --test` on the open handles. The guards below
+//    fail on the source rather than waiting for CI to time out.
 //
 // CI runs `npm run coverage` rather than its own command line, so all of it is checked
 // once here and holds locally and in CI alike.
@@ -41,10 +43,6 @@ const workflow = read('.github/workflows/ci.yml');
 // The LCOV file name has to agree in three places: the script that writes it, the CI
 // step that uploads it, and .gitignore. Take the script as the source of truth.
 const LCOV = 'lcov.info';
-
-// Shipped code that cannot be require()d in-process. Keep in sync with the comment at
-// the top of this file — removing an entry here means it must join the include list.
-const UNLOADABLE = ['server.js', 'homekit.js'];
 
 const PRELOAD = './tests/helpers/coverage-preload.cjs';
 
@@ -71,12 +69,11 @@ describe('coverage script', () => {
     assert.ok(pkg.scripts.coverage, 'package.json needs a coverage script; ci.yml runs it');
   });
 
-  test('measures every shipped code file it can load', () => {
+  test('measures every shipped code file', () => {
     // A new shipped directory or module should fail here until it is added to the
     // include list, rather than silently sitting outside the measurement.
     const expected = pkg.files
       .filter((entry) => entry.endsWith('.js') || entry.endsWith('/'))
-      .filter((entry) => !UNLOADABLE.includes(entry))
       .map((entry) => (entry.endsWith('/') ? `${entry}**` : entry))
       .sort();
     const includes = [...script.matchAll(/--test-coverage-include='([^']+)'/g)]
@@ -85,33 +82,23 @@ describe('coverage script', () => {
     assert.deepEqual(
       includes,
       expected,
-      'the --test-coverage-include list must cover every loadable code entry in the package files array'
+      'the --test-coverage-include list must cover every code entry in the package files array'
     );
   });
 
-  test('preloads the source no test requires', () => {
-    // Without this the report omits twilio-api.js entirely, which raises the headline
+  test('preloads the sources no test requires', () => {
+    // Without these the report omits the three entirely, which raises the headline
     // percentage instead of lowering it.
     assert.ok(
       script.includes(`--require ${PRELOAD}`),
-      `coverage must preload via ${PRELOAD}, or V8 drops twilio-api.js from the report rather than scoring it`
+      `coverage must preload via ${PRELOAD}, or V8 drops the untested modules from the report rather than scoring them`
     );
-    assert.match(
-      read(PRELOAD),
-      /require\('\.\.\/\.\.\/twilio-api\.js'\)/,
-      'the preload exists to load twilio-api.js; loading nothing makes the flag a no-op'
-    );
-  });
-
-  test('keeps the unloadable modules out of the preload', () => {
-    // Requiring either binds a port or publishes the accessory and spawns ffmpeg,
-    // leaving open handles that hang `node --test` rather than failing it.
     const preload = read(PRELOAD);
-    for (const entry of UNLOADABLE) {
-      assert.doesNotMatch(
+    for (const entry of ['twilio-api.js', 'homekit.js', 'server.js']) {
+      assert.match(
         preload,
         new RegExp(`require\\('\\.\\./\\.\\./${entry.replace('.', '\\.')}'\\)`),
-        `${entry} cannot be preloaded: it has module-scope side effects that hang the test runner`
+        `the preload must require ${entry}; otherwise it is absent from the report, not scored 0%`
       );
     }
   });
@@ -137,6 +124,77 @@ describe('coverage script', () => {
         `the ${gate} gate must not depend on coverage; it needs Node >= 22.5`
       );
     }
+  });
+});
+
+describe('entry points stay inert when required', () => {
+  // The preload, and so the whole measurement, rests on this. It is also the property
+  // that makes `buzz-me-in --qr` safe to run against a live deployment: a read-only
+  // query must not advertise a second accessory or bind the port.
+  const server = read('server.js');
+  const homekit = read('homekit.js');
+
+  test('server.js only starts itself when it is the entry point', () => {
+    assert.match(
+      server,
+      /if \(require\.main === module\) main\(\);/,
+      'server.js must call main() behind a require.main guard, not at module scope'
+    );
+  });
+
+  test('server.js keeps its side effects inside main()', () => {
+    const body = server.slice(server.indexOf('function main()'));
+    for (const effect of ['wsserver.listen(', "process.on('SIGINT'", "process.on('SIGTERM'"]) {
+      assert.ok(body.includes(effect), `main() must own ${effect}`);
+    }
+    // An uncaughtException handler installed by merely requiring this file would
+    // call process.exit(1) on a test's own failure and report it as a pass.
+    const moduleScope = server.slice(0, server.indexOf('function main()'));
+    assert.doesNotMatch(
+      moduleScope,
+      /^process\.on\(/m,
+      'process-level handlers belong in main(); at module scope they follow every require'
+    );
+    assert.doesNotMatch(
+      moduleScope,
+      /^wsserver\.listen\(/m,
+      'listening at module scope binds PORT on every require'
+    );
+  });
+
+  test('server.js parses CLI flags only when run', () => {
+    // process.argv belongs to whatever loaded this file. Under `node --test` that is
+    // a list of test files, which must not be read as intercom flags.
+    const cliCall = server.indexOf("require('./src/core/cli').run(");
+    assert.notEqual(cliCall, -1, 'server.js no longer calls cli.run()');
+    const guard = server.lastIndexOf('if (require.main === module) {', cliCall);
+    assert.notEqual(guard, -1, 'the cli.run() block must sit behind a require.main guard');
+  });
+
+  test('homekit.js publishes only from start()', () => {
+    const startBody = homekit.slice(homekit.indexOf('function start()'));
+    for (const effect of ['accessory.publish(', 'initSnapshot(']) {
+      assert.ok(startBody.includes(effect), `start() must own ${effect}`);
+    }
+    const moduleScope = homekit.slice(0, homekit.indexOf('function start()'));
+    assert.doesNotMatch(
+      moduleScope,
+      /^accessory\.publish\(/m,
+      'publishing at module scope puts a second accessory on the network on every require'
+    );
+    assert.doesNotMatch(
+      moduleScope,
+      /^initSnapshot\(\)/m,
+      'spawning ffmpeg at module scope runs on every require, including read-only CLI queries'
+    );
+  });
+
+  test('server.js starts the accessory before it accepts traffic', () => {
+    const body = server.slice(server.indexOf('function main()'));
+    assert.ok(
+      body.indexOf('homekit.start()') < body.indexOf('wsserver.listen('),
+      'the accessory must be published before the port accepts a Twilio stream'
+    );
   });
 });
 
