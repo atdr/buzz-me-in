@@ -86,6 +86,16 @@ if (!/^[0-9A-Da-d*#wW]+$/.test(twilioUnlockDigits)) {
   fail('TWILIO_UNLOCK_DIGITS may only contain DTMF digits 0-9, A-D, *, #, w, and W');
 }
 
+// Modes for the /media handshake signature check. Defaults to 'log' rather
+// than 'enforce': Twilio's handshake signing has documented quirks (wss://
+// scheme, optional trailing slash), so a deployment must confirm real calls
+// verify before a mismatch is allowed to reject them.
+const MEDIA_SIGNATURE_MODES = ['off', 'log', 'enforce'];
+const twilioMediaSignatureMode = optional('TWILIO_MEDIA_SIGNATURE_MODE') || 'log';
+if (!MEDIA_SIGNATURE_MODES.includes(twilioMediaSignatureMode)) {
+  fail(`TWILIO_MEDIA_SIGNATURE_MODE must be one of: ${MEDIA_SIGNATURE_MODES.join(', ')}`);
+}
+
 const twilioWebhookBaseUrl = sanitizeBaseUrl(
   optional('TWILIO_WEBHOOK_BASE_URL') || `https://${tunnelHostname}`
 );
@@ -101,6 +111,7 @@ module.exports = {
     'AC followed by 32 alphanumeric chars'
   ),
   twilioAuthToken: required('TWILIO_AUTH_TOKEN'),
+  twilioMediaSignatureMode,
   twilioUnlockDigits,
   twilioPhoneNumber: validateRegex(
     'TWILIO_PHONE_NUMBER',

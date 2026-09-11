@@ -58,14 +58,14 @@ RPi: server.js (HTTP + WebSocket on one port)
 
 All endpoints are reachable from the public internet through the tunnel; each enforces its own auth:
 
-| Endpoint    | Method    | Auth                                         | Purpose                                |
-| ----------- | --------- | -------------------------------------------- | -------------------------------------- |
-| `/twiml`    | POST      | Twilio signature (`X-Twilio-Signature`)      | Returns TwiML for incoming calls       |
-| `/media`    | WebSocket | One-time HMAC stream token (issued in TwiML) | Bidirectional call audio               |
-| `/status`   | GET       | Bearer token (`STATUS_API_TOKEN`)            | Active call info                       |
-| `/healthz`  | GET       | None (by design)                             | Liveness probe, returns `{"ok":true}`  |
-| `/readyz`   | GET       | None (by design)                             | Readiness probe, returns `{"ok":true}` |
-| `/ringtone` | GET       | None                                         | Ring tone WAV for debug/manual checks  |
+| Endpoint    | Method    | Auth                                                                                   | Purpose                                |
+| ----------- | --------- | -------------------------------------------------------------------------------------- | -------------------------------------- |
+| `/twiml`    | POST      | Twilio signature (`X-Twilio-Signature`)                                                | Returns TwiML for incoming calls       |
+| `/media`    | WebSocket | Twilio signature on the handshake, then a one-time HMAC stream token (issued in TwiML) | Bidirectional call audio               |
+| `/status`   | GET       | Bearer token (`STATUS_API_TOKEN`)                                                      | Active call info                       |
+| `/healthz`  | GET       | None (by design)                                                                       | Liveness probe, returns `{"ok":true}`  |
+| `/readyz`   | GET       | None (by design)                                                                       | Readiness probe, returns `{"ok":true}` |
+| `/ringtone` | GET       | None                                                                                   | Ring tone WAV for debug/manual checks  |
 
 The health endpoints are deliberately unauthenticated so systemd checks, uptime monitors, and the test sequence below can probe them; they expose nothing beyond `{"ok":true}`.
 
@@ -186,7 +186,8 @@ In the [Twilio Console](https://console.twilio.com/us1/develop/phone-numbers/man
 Security hardening notes:
 
 - `/twiml` enforces `X-Twilio-Signature` verification with your `TWILIO_AUTH_TOKEN`.
-- TwiML embeds a short-lived, one-time signed token in the media stream URL. WebSocket connections are rejected unless this token validates.
+- TwiML embeds a short-lived, one-time signed token as a `<Parameter>`, which Twilio sends in the WebSocket `start` event. Connections are rejected unless this token validates.
+- `/media` additionally verifies `X-Twilio-Signature` on the WebSocket handshake, before the socket is accepted, so unauthenticated connections cost the Pi nothing. This is defence in depth: the handshake carries no body or query string, so its signature is an HMAC over a constant URL and is the same on every call. Only the one-time token is single-use. Controlled by `TWILIO_MEDIA_SIGNATURE_MODE` (`off` | `log` | `enforce`, default `log`); see `.env.example`.
 - If your externally visible webhook base URL differs from `https://{TUNNEL_HOSTNAME}`, set `TWILIO_WEBHOOK_BASE_URL` explicitly in `.env`.
 
 ### 5. Pair with HomeKit

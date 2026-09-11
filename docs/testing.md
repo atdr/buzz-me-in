@@ -30,7 +30,7 @@ npm run test
 
 - `tests/config.test.cjs` - configuration loading and validation behavior
 - `tests/state.test.cjs` - call session lifecycle and stale-session cleanup
-- `tests/stream-auth.test.cjs` - stream token issue/verify, replay and tamper rejection, TwiML builder
+- `tests/stream-auth.test.cjs` - stream token issue/verify, replay and tamper rejection, TwiML builder, `/media` handshake signature verification (URL variants, forgery rejection, candidate-set pin)
 - `tests/media-stream.test.cjs` - Twilio media stream protocol (start/media/stop, token checks, teardown)
 - `tests/ws-events-schema.test.cjs` - Twilio WS envelope and media payload validation
 - `tests/mulaw-audio.test.cjs` - mu-law encode/decode, DTMF and ringback generation, WAV rendering

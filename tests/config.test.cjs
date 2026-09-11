@@ -28,6 +28,25 @@ test('config loads valid configuration and defaults', () => {
     assert.equal(config.twilioMediaPayloadMaxBytes, 512);
     assert.equal(config.shutdownGraceMs, 10000);
     assert.equal(config.twilioUnlockDigits, 'w9w');
+    // Defaults to log, not enforce: Twilio's handshake signing has documented
+    // quirks, so a deployment must confirm real calls verify before a
+    // mismatch is allowed to reject them.
+    assert.equal(config.twilioMediaSignatureMode, 'log');
+  });
+});
+
+test('config accepts every media signature mode', () => {
+  for (const mode of ['off', 'log', 'enforce']) {
+    withEnv({ ...BASE_ENV, TWILIO_MEDIA_SIGNATURE_MODE: mode }, () => {
+      const config = freshRequire('../../src/core/config.js');
+      assert.equal(config.twilioMediaSignatureMode, mode);
+    });
+  }
+});
+
+test('config rejects an unknown media signature mode', () => {
+  withEnv({ ...BASE_ENV, TWILIO_MEDIA_SIGNATURE_MODE: 'on' }, () => {
+    assert.throws(() => freshRequire('../../src/core/config.js'), /TWILIO_MEDIA_SIGNATURE_MODE/);
   });
 });
 
