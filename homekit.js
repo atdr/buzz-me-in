@@ -918,4 +918,10 @@ module.exports = {
   endHapSession,
   setOnHapSessionStarted,
   shutdown,
+  // Exported for tests/homekit-hangup-grace.test.cjs. Reaching the deferred
+  // hangup through the streaming delegate would mean standing up a full SRTP
+  // session, which tests nothing about the timer.
+  scheduleHangUp,
+  cancelPendingHangUp,
+  deferPendingHangUp,
 };
