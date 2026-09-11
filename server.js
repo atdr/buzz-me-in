@@ -38,6 +38,7 @@ const {
   buildConnectStreamTwiml,
   STREAM_TOKEN_PARAMETER_NAME,
   verifyAndConsumeStreamToken,
+  verifyStreamHandshakeSignature,
 } = require('./src/core/stream-auth');
 const { normalizeCallSid } = require('./src/core/twilio-ids');
 const homekit = require('./homekit');
@@ -45,12 +46,14 @@ const { createLogger } = require('./src/core/log');
 const { safeEqualString } = require('./src/core/safe-equal');
 const { MediaStream } = require('./src/core/media-stream');
 /** @import { request as WebSocketRequest } from 'websocket' */
+/** @import { HandshakeVerificationError } from './src/core/types' */
 
 const HTTP_SERVER_PORT = config.port;
 const STREAM_PATH = '/media';
 const STREAM_START_TIMEOUT_MS = config.streamStartTimeoutMs;
 const STATUS_BEARER_PREFIX = 'Bearer ';
 const MAX_WS_UTF8_BYTES = config.wsMaxMessageBytes;
+const MEDIA_SIGNATURE_MODE = config.twilioMediaSignatureMode;
 const SHUTDOWN_GRACE_MS = config.shutdownGraceMs;
 let shuttingDown = false;
 const activeWsConnections = new Set();
@@ -262,6 +265,36 @@ mediaws.on('request', function (request) {
     wsRequest.reject(404, 'Not found');
     return;
   }
+  // Twilio signs the Media Streams handshake, so an unauthenticated socket can
+  // be refused here rather than after accept(). Without this the server accepts
+  // the connection and allocates a MediaStream before any auth runs, because
+  // the stream token only arrives later in the `start` frame. Defence in depth:
+  // the one-time token below remains the authority, since this signature is an
+  // HMAC over a constant URL and so never varies between calls.
+  if (MEDIA_SIGNATURE_MODE !== 'off') {
+    const handshake = verifyStreamHandshakeSignature(
+      wsRequest.httpRequest.headers['x-twilio-signature']
+    );
+    if (!handshake.ok) {
+      // strict:false disables discriminated-union narrowing; cast as elsewhere.
+      const handshakeError = /** @type {HandshakeVerificationError} */ (handshake);
+      mediaWsLogger.warn('Media websocket handshake signature rejected', {
+        event: 'media-ws-rejected',
+        reason: handshakeError.reason,
+        enforced: MEDIA_SIGNATURE_MODE === 'enforce',
+      });
+      if (MEDIA_SIGNATURE_MODE === 'enforce') {
+        wsRequest.reject(403, 'Forbidden');
+        return;
+      }
+    } else {
+      mediaWsLogger.debug('Media websocket handshake signature verified', {
+        event: 'media-ws-handshake-verified',
+        signedUrl: handshake.signedUrl,
+      });
+    }
+  }
+
   // Memory backstop only: cap total sockets so a connection flood can't grow
   // unbounded. Only one Twilio call is ever authenticated at a time, and each
   // un-started socket is dropped after config.streamStartTimeoutMs, so this is

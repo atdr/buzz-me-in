@@ -103,6 +103,18 @@
  */
 
 /**
+ * @typedef {{ ok: true, signedUrl: string }} HandshakeVerificationOk
+ */
+
+/**
+ * @typedef {{ ok: false, reason: string }} HandshakeVerificationError
+ */
+
+/**
+ * @typedef {HandshakeVerificationOk | HandshakeVerificationError} StreamHandshakeVerificationResult
+ */
+
+/**
  * @typedef {{
  *   callSid: string,
  *   streamSid: string,

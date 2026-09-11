@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const twilio = require('twilio');
 const config = require('./config');
 const { safeEqualString } = require('./safe-equal');
 
@@ -101,6 +102,59 @@ function verifyAndConsumeStreamToken(token) {
 }
 
 /**
+ * URLs Twilio may have signed for the `/media` WebSocket handshake.
+ *
+ * Twilio signs the URL it was told to connect to, i.e. the `<Stream url>` that
+ * buildConnectStreamTwiml emits. Two documented quirks make the exact string
+ * ambiguous, and both break every call if guessed wrong:
+ *
+ *   - the signature is computed over the `wss://` scheme even though the
+ *     request arrives as an ordinary HTTP upgrade (twilio-aspnet#162);
+ *   - Twilio's own guidance is to try a trailing `/` when validation fails.
+ *
+ * Each candidate is a distinct string that still has to HMAC to the presented
+ * signature under the auth token, so trying all four grants an attacker
+ * nothing: forging any one of them already requires the token.
+ *
+ * @param {string} [tunnelHostname]
+ * @returns {string[]}
+ */
+function streamHandshakeSignedUrls(tunnelHostname = config.tunnelHostname) {
+  return [
+    `wss://${tunnelHostname}${STREAM_PATH}`,
+    `wss://${tunnelHostname}${STREAM_PATH}/`,
+    `https://${tunnelHostname}${STREAM_PATH}`,
+    `https://${tunnelHostname}${STREAM_PATH}/`,
+  ];
+}
+
+/**
+ * Verify the `X-Twilio-Signature` on the `/media` WebSocket handshake.
+ *
+ * This is defence in depth, not a replacement for the one-time stream token.
+ * The handshake carries no body and no query string, so the signature is an
+ * HMAC over a constant URL and is identical on every call for the life of the
+ * auth token. It rejects scanners and anything that has never observed a
+ * genuine handshake; it does not resist replay by anything that has. Only
+ * verifyAndConsumeStreamToken is single-use.
+ *
+ * @param {unknown} signature value of the (lowercase) x-twilio-signature header
+ * @param {string} [tunnelHostname]
+ * @returns {import('./types').StreamHandshakeVerificationResult}
+ */
+function verifyStreamHandshakeSignature(signature, tunnelHostname = config.tunnelHostname) {
+  if (typeof signature !== 'string' || !signature) {
+    return { ok: false, reason: 'missing handshake signature' };
+  }
+  for (const signedUrl of streamHandshakeSignedUrls(tunnelHostname)) {
+    if (twilio.validateRequest(config.twilioAuthToken, signature, signedUrl, {})) {
+      return { ok: true, signedUrl };
+    }
+  }
+  return { ok: false, reason: 'invalid handshake signature' };
+}
+
+/**
  * @param {string | null} callSid
  * @param {string} [tunnelHostname]
  * @returns {string}
@@ -125,6 +179,9 @@ function escapeXmlAttribute(value) {
 module.exports = {
   buildConnectStreamTwiml,
   issueStreamToken,
+  STREAM_PATH,
   STREAM_TOKEN_PARAMETER_NAME,
+  streamHandshakeSignedUrls,
   verifyAndConsumeStreamToken,
+  verifyStreamHandshakeSignature,
 };
