@@ -38,6 +38,12 @@ function signPayload(payload) {
   return `${payloadEncoded}.${signature}`;
 }
 
+// Twilio's scheme: HMAC-SHA1 over the URL with sorted params appended. The
+// handshake has no body and no query string, so it is the bare URL.
+function twilioSignature(url, authToken = BASE_ENV.TWILIO_AUTH_TOKEN) {
+  return crypto.createHmac('sha1', authToken).update(url).digest('base64');
+}
+
 test('stream token verification', async (t) => {
   await t.test('issued token verifies once and returns the callSid', () => {
     withEnv(BASE_ENV, () => {
@@ -160,6 +166,132 @@ test('connect-stream TwiML builder', async (t) => {
       assert.ok(match, 'TwiML should contain a token parameter');
       const result = auth.verifyAndConsumeStreamToken(match[1]);
       assert.deepEqual(result, { ok: true, callSid: 'CA0123456789' });
+    });
+  });
+});
+
+test('media handshake signature verification', async (t) => {
+  await t.test('accepts the wss URL the TwiML actually advertises', () => {
+    withEnv(BASE_ENV, () => {
+      const auth = loadStreamAuth();
+      const url = 'wss://intercom.example.com/media';
+      assert.deepEqual(auth.verifyStreamHandshakeSignature(twilioSignature(url)), {
+        ok: true,
+        signedUrl: url,
+      });
+    });
+  });
+
+  // Twilio's own guidance is to try a trailing slash when validation fails,
+  // so a signature over the slashed form must verify and report which
+  // variant matched.
+  await t.test('accepts the trailing-slash variant and reports it', () => {
+    withEnv(BASE_ENV, () => {
+      const auth = loadStreamAuth();
+      const url = 'wss://intercom.example.com/media/';
+      assert.deepEqual(auth.verifyStreamHandshakeSignature(twilioSignature(url)), {
+        ok: true,
+        signedUrl: url,
+      });
+    });
+  });
+
+  // The upgrade arrives over HTTP, so a signature computed against https://
+  // must verify too (twilio-aspnet#162).
+  await t.test('accepts the https scheme variant', () => {
+    withEnv(BASE_ENV, () => {
+      const auth = loadStreamAuth();
+      const url = 'https://intercom.example.com/media';
+      assert.deepEqual(auth.verifyStreamHandshakeSignature(twilioSignature(url)), {
+        ok: true,
+        signedUrl: url,
+      });
+    });
+  });
+
+  await t.test('missing or non-string signature is rejected', () => {
+    withEnv(BASE_ENV, () => {
+      const auth = loadStreamAuth();
+      const expected = { ok: false, reason: 'missing handshake signature' };
+      assert.deepEqual(auth.verifyStreamHandshakeSignature(undefined), expected);
+      assert.deepEqual(auth.verifyStreamHandshakeSignature(''), expected);
+      // A repeated header arrives as an array, not a string.
+      assert.deepEqual(auth.verifyStreamHandshakeSignature(['a', 'b']), expected);
+    });
+  });
+
+  await t.test('signature from a different auth token is rejected', () => {
+    withEnv(BASE_ENV, () => {
+      const auth = loadStreamAuth();
+      const forged = twilioSignature('wss://intercom.example.com/media', 'not-the-auth-token');
+      assert.deepEqual(auth.verifyStreamHandshakeSignature(forged), {
+        ok: false,
+        reason: 'invalid handshake signature',
+      });
+    });
+  });
+
+  // A signature minted for another tunnel on the same Twilio account must not
+  // open this one.
+  await t.test('signature for a different hostname is rejected', () => {
+    withEnv(BASE_ENV, () => {
+      const auth = loadStreamAuth();
+      const other = twilioSignature('wss://other-intercom.example.com/media');
+      assert.deepEqual(auth.verifyStreamHandshakeSignature(other), {
+        ok: false,
+        reason: 'invalid handshake signature',
+      });
+    });
+  });
+
+  await t.test('signature for a different path is rejected', () => {
+    withEnv(BASE_ENV, () => {
+      const auth = loadStreamAuth();
+      const other = twilioSignature('wss://intercom.example.com/twiml');
+      assert.deepEqual(auth.verifyStreamHandshakeSignature(other), {
+        ok: false,
+        reason: 'invalid handshake signature',
+      });
+    });
+  });
+
+  await t.test('an explicit hostname overrides the configured one', () => {
+    withEnv(BASE_ENV, () => {
+      const auth = loadStreamAuth();
+      const url = 'wss://elsewhere.example.com/media';
+      assert.deepEqual(
+        auth.verifyStreamHandshakeSignature(twilioSignature(url), 'elsewhere.example.com'),
+        { ok: true, signedUrl: url }
+      );
+    });
+  });
+
+  // Defence in depth only. The handshake carries no body and no query string,
+  // so the signature is an HMAC over a constant URL: it is the same on every
+  // call and verifying does not consume it. Contrast the stream token above,
+  // which is single-use and is the only replay control on /media. If this
+  // test ever needs changing, the one-time token must not be what changed.
+  await t.test('verification is repeatable, unlike the one-time token', () => {
+    withEnv(BASE_ENV, () => {
+      const auth = loadStreamAuth();
+      const signature = twilioSignature('wss://intercom.example.com/media');
+      assert.equal(auth.verifyStreamHandshakeSignature(signature).ok, true);
+      assert.equal(auth.verifyStreamHandshakeSignature(signature).ok, true);
+    });
+  });
+
+  // Pin the candidate set so it cannot silently widen. Every entry has to HMAC
+  // to the presented signature under the auth token, but the list is still the
+  // full set of URLs a signature may be minted for.
+  await t.test('candidate URLs are exactly the four documented variants', () => {
+    withEnv(BASE_ENV, () => {
+      const auth = loadStreamAuth();
+      assert.deepEqual(auth.streamHandshakeSignedUrls(), [
+        'wss://intercom.example.com/media',
+        'wss://intercom.example.com/media/',
+        'https://intercom.example.com/media',
+        'https://intercom.example.com/media/',
+      ]);
     });
   });
 });
