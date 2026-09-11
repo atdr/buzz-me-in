@@ -95,7 +95,7 @@ jobs:
       # token says nothing about the change under review, but the coverage run itself
       # stays blocking, because a job that can never fail is a check that proves nothing.
       - name: Upload to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         continue-on-error: true
         with:
           files: ./lcov.info
