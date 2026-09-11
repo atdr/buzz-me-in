@@ -86,7 +86,8 @@ The health endpoints are deliberately unauthenticated so systemd checks, uptime 
 - Node.js >= 20
   - Runtime is tested on Node 20+.
   - Repo tooling/CI currently runs on Node 20, 22, and 24.
-- ffmpeg with libx264 and libopus: `sudo apt install ffmpeg`
+- ffmpeg >= 5.1 with libx264 and libopus: `sudo apt install ffmpeg`
+  - The 5.1 floor is the `-ch_layout` option used on the inbound audio pipeline. Debian 12 (bookworm) ships 5.1 and Raspberry Pi OS based on Debian 13 ships 7.1, so apt satisfies this on any currently supported release.
 
 ### Accounts and services
 

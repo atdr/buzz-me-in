@@ -291,6 +291,10 @@ function _startSession(sessionID, s, request, callback) {
   // Input 0  – raw mulaw/8kHz from Twilio via stdin
   //   Let the raw audio demuxer derive PTS from sample count. Using wall-clock
   //   timestamps breaks when ffmpeg drains the buffered startup audio burst.
+  //   -ch_layout declares mono rather than -ac counting one channel: a count
+  //   leaves the layout unset, so the decoder guesses it and logs "Guessed
+  //   Channel Layout: mono" on every call. Our stderr handler is a warn, so
+  //   that guess looked like a fault in the journal. Needs ffmpeg >= 5.1.
   //
   // Input 1  – synthetic black video (lavfi color source)
   //   Generates H.264 Baseline/3.1 frames at 15 fps.
@@ -313,8 +317,8 @@ function _startSession(sessionID, s, request, callback) {
     'mulaw',
     '-ar',
     '8000',
-    '-ac',
-    '1',
+    '-ch_layout',
+    'mono',
     '-i',
     'pipe:0',
 
