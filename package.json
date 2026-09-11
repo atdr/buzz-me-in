@@ -22,6 +22,7 @@
     "check": "node --check server.js homekit.js twilio-api.js src/core/*.js",
     "test": "DOTENV_CONFIG_PATH=/dev/null node --test",
     "typecheck": "tsc --noEmit",
+    "coverage": "DOTENV_CONFIG_PATH=/dev/null node --test --experimental-test-coverage --test-coverage-include='src/**' --test-coverage-include='twilio-api.js' --require ./tests/helpers/coverage-preload.cjs --test-reporter=lcov --test-reporter-destination=lcov.info --test-reporter=spec --test-reporter-destination=stdout",
     "prepare": "husky || true"
   },
   "license": "MIT",

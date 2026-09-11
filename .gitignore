@@ -27,8 +27,10 @@ pids
 lib-cov
 
 # Coverage directory used by tools like istanbul
+# (*.lcov does not match lcov.info, which `npm run coverage` writes)
 coverage
 *.lcov
+lcov.info
 
 # nyc test coverage
 .nyc_output
