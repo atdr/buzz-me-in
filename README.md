@@ -422,6 +422,8 @@ Tap the lock tile in the Home app → set to Unlocked.
 
 The lock tile resets to Secured automatically after 3 seconds.
 
+Two routes reach the lock tile, and they behave differently. The grid button at the bottom right of the camera view brings the lock up _beside_ the running stream, which is the smoother of the two. Backing out to the room view instead closes the camera view and tears the stream down; the lock tile is still there under **Other**, and it works because the call is held open for `HOMEKIT_HANGUP_GRACE_MS` after the view closes. Tapping unlock restarts that window, so the digits are never cut off mid-sequence.
+
 ---
 
 ### Stage 8 — Caller hangs up
@@ -446,9 +448,12 @@ Open the live view, then dismiss it on the iPhone (tap the X / end button).
 **Pass (server log):**
 
 ```text
+{"ts":"...","level":"info","message":"Hangup scheduled after grace period","component":"homekit","event":"hangup-scheduled","reason":"homekit-session-stopped","callSid":"CA...","sessionId":"...","graceMs":3000}
 {"ts":"...","level":"info","message":"Inbound ffmpeg exited","component":"homekit","event":"ffin-exit","reason":"nonzero-exit","exitCode":null,"sessionId":"..."}
 {"ts":"...","level":"info","message":"Hanging up call","component":"twilio-api","event":"hangup","callSid":"CA..."}
 ```
+
+The call is not hung up the instant the view closes. It is held open for `HOMEKIT_HANGUP_GRACE_MS` (default 3000) so the lock tile still has a call to send DTMF to, then hung up. Reopening the view inside that window logs `hangup-cancelled` instead and the call continues; if the caller hangs up first, the pending hangup logs `hangup-skipped` and does nothing.
 
 **Pass (Twilio):** The call shows as completed in the [Twilio Console call log](https://console.twilio.com/us1/monitor/logs/calls).
 

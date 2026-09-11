@@ -277,6 +277,9 @@ const streamingDelegate = {
 // ---------------------------------------------------------------------------
 
 function _startSession(sessionID, s, request, callback) {
+  // Reopening the live view inside the grace window means the user is not
+  // finished after all.
+  cancelPendingHangUp('homekit-session-restarted');
   const videoParams = srtpParams(s.hkVideoKey, s.hkVideoSalt);
   const audioParams = srtpParams(s.hkAudioKey, s.hkAudioSalt);
   const video = request.video;
@@ -557,13 +560,85 @@ function _stopSession(sessionID, hangUp) {
 
   const activeCall = getActiveCall();
   if (hangUp && activeCall) {
-    hangUpCall(activeCall.callSid)
+    scheduleHangUp(activeCall.callSid, sessionID);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Deferred hangup
+//
+// Closing the live view is not the same as being finished with the caller. The
+// Home app reaches the lock tile two different ways: the grid button inside the
+// camera view keeps the stream up, but backing out to the room view tears it
+// down, and tapping the lock from there used to find no call left to send DTMF
+// to. Holding the call open briefly after STOP makes both routes work, because
+// unlock needs the call's WebSocket, not a HomeKit streaming session.
+//
+// The call is still hung up when the user really has finished; it just costs
+// config.homekitHangupGraceMs of silence first, ffmpeg having already been
+// killed above.
+// ---------------------------------------------------------------------------
+
+const HANGUP_GRACE_MS = config.homekitHangupGraceMs;
+
+/** @type {{ timer: NodeJS.Timeout, callSid: string, sessionID: string } | null} */
+let pendingHangUp = null;
+
+function cancelPendingHangUp(reason) {
+  if (!pendingHangUp) return;
+  clearTimeout(pendingHangUp.timer);
+  logger.info('Pending hangup cancelled', {
+    event: 'hangup-cancelled',
+    reason,
+    callSid: pendingHangUp.callSid,
+    sessionId: pendingHangUp.sessionID,
+  });
+  pendingHangUp = null;
+}
+
+/**
+ * Restart the grace window, so a hangup cannot land on top of an action the
+ * user has just taken. Without this an unlock tapped late in the window could
+ * be cut off before the intercom acts on the digits.
+ */
+function deferPendingHangUp(reason) {
+  if (!pendingHangUp) return;
+  const { callSid, sessionID } = pendingHangUp;
+  clearTimeout(pendingHangUp.timer);
+  pendingHangUp = null;
+  scheduleHangUp(callSid, sessionID, reason);
+}
+
+function scheduleHangUp(callSid, sessionID, reason = 'homekit-session-stopped') {
+  cancelPendingHangUp('superseded');
+  logger.info('Hangup scheduled after grace period', {
+    event: 'hangup-scheduled',
+    reason,
+    callSid,
+    sessionId: sessionID,
+    graceMs: HANGUP_GRACE_MS,
+  });
+  const timer = setTimeout(() => {
+    pendingHangUp = null;
+    const activeCall = getActiveCall();
+    // The caller may have hung up during the window, and the slot may already
+    // hold a different call. Either way this one is no longer ours to end.
+    if (!activeCall || activeCall.callSid !== callSid) {
+      logger.info('Pending hangup skipped; call already gone', {
+        event: 'hangup-skipped',
+        reason: 'call-no-longer-active',
+        callSid,
+        sessionId: sessionID,
+      });
+      return;
+    }
+    hangUpCall(callSid)
       .then((result) => {
         if (result && result.alreadyEnded) {
           logger.info('Twilio call already ended while stopping HomeKit session', {
             event: 'hangup-call-already-ended',
             reason: 'twilio-call-not-in-progress',
-            callSid: activeCall.callSid,
+            callSid,
             sessionId: sessionID,
           });
         }
@@ -572,12 +647,14 @@ function _stopSession(sessionID, hangUp) {
         logger.error('Failed to hang up call while stopping HomeKit session', {
           event: 'hangup-call-failed',
           reason: 'twilio-hangup-failed',
-          callSid: activeCall.callSid,
+          callSid,
           sessionId: sessionID,
           error,
         });
       });
-  }
+  }, HANGUP_GRACE_MS);
+  timer.unref();
+  pendingHangUp = { timer, callSid, sessionID };
 }
 
 // ---------------------------------------------------------------------------
@@ -611,6 +688,10 @@ lockService
       try {
         await sendDtmfSequence(activeCall, config.twilioUnlockDigits);
         state.markActivity(activeCall.callSid, 'unlock-dtmf');
+        // Unlocking from the room view is the case this grace window exists
+        // for, so give the intercom a full window to act on the digits rather
+        // than whatever was left of the previous one.
+        deferPendingHangUp('unlock-sent');
         logger.info('Sent DTMF unlock over active media stream', {
           event: 'unlock-requested',
           callSid: activeCall.callSid,
@@ -789,6 +870,9 @@ function clearMulawPassthrough(stream) {
  * Does NOT call hangUpCall — the call is already gone.
  */
 function endHapSession() {
+  // The caller is already gone, so a hangup left over from a closed live view
+  // has nothing to end.
+  cancelPendingHangUp('call-ended');
   for (const sessionID of activeSessions.keys()) {
     _stopSession(sessionID, /* hangUp= */ false);
   }
@@ -811,6 +895,7 @@ function setOnHapSessionStarted(handler) {
  * clean stop, restart and reboot.
  */
 function shutdown() {
+  cancelPendingHangUp('shutdown');
   endHapSession();
   removeSdpDir();
   // Nothing to tear down if start() never ran: unpublish() on an accessory
