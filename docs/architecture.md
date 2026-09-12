@@ -45,6 +45,7 @@ This document focuses on stable architecture concepts. It intentionally avoids t
    - ingest HomeKit return audio and forward mulaw payloads back to Twilio WS
    - send generated ringback and unlock DTMF back to Twilio over the same WS
 7. Call/session cleanup occurs on Twilio `stop`, WS close, stale timeout, or shutdown.
+8. Closing the HomeKit live view tears down the ffmpeg pipelines immediately but hangs up the Twilio call only after `HOMEKIT_HANGUP_GRACE_MS`, so the lock tile in the room view still has a call to send DTMF to. Reopening the view, or the caller hanging up, cancels the pending hangup; sending unlock restarts the window.
 
 ## Session model
 

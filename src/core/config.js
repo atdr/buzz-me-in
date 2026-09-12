@@ -138,6 +138,7 @@ module.exports = {
   streamStartTimeoutMs: parsePositiveInt('STREAM_START_TIMEOUT_MS', '3000'),
   twilioMediaPayloadMaxBytes: parsePositiveInt('TWILIO_MEDIA_PAYLOAD_MAX_BYTES', '512'),
   shutdownGraceMs: parsePositiveInt('SHUTDOWN_GRACE_MS', '10000'),
+  homekitHangupGraceMs: parsePositiveInt('HOMEKIT_HANGUP_GRACE_MS', '3000'),
   streamAuthSecret,
   streamAuthTtlSec: 90,
   statusApiToken,
