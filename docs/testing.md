@@ -38,6 +38,7 @@ npm run test
 - `tests/twilio-ids.test.cjs` - Twilio identifier normalization
 - `tests/return-audio-sdp.test.cjs` - return-audio SDP generation and teardown
 - `tests/homekit-shutdown.test.cjs` - the shutdown path unpublishes and never destroys (pairing-loss guard)
+- `tests/homekit-hangup-grace.test.cjs` - the call is held open after the live view closes, and the pending hangup is cancelled, deferred, superseded or skipped correctly (unlock-from-room-view guard)
 - `tests/cli.test.cjs` - `--qr`/`--check`/`--help`/`--version`, plus the hap-nodejs and node-persist behaviours they rest on
 - `tests/publish-release-workflow.test.cjs` - release publish workflow guards
 - `tests/publish-prerelease-workflow.test.cjs` - prerelease publish workflow guards
