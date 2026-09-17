@@ -96,6 +96,50 @@ if (!MEDIA_SIGNATURE_MODES.includes(twilioMediaSignatureMode)) {
   fail(`TWILIO_MEDIA_SIGNATURE_MODE must be one of: ${MEDIA_SIGNATURE_MODES.join(', ')}`);
 }
 
+// Optional labels for numbers we expect to see calling in, so the journal says
+// who rang rather than only a number. The intercom panel is the only caller
+// that should normally appear; anything else is a wrong number or a dialler
+// finding an open PSTN number, and being able to tell them apart at a glance is
+// the point. Purely descriptive: nothing is rejected on the strength of it, and
+// an unknown caller still rings the doorbell, because the building's dialler
+// could change without warning and a silently blocked visitor is far worse
+// than a labelled unknown one.
+//
+// Format: comma-separated E.164=Label pairs, e.g.
+//   KNOWN_CALLERS=+15551234567=Intercom,+15557654321=Building management
+const E164 = /^\+[1-9]\d{1,14}$/;
+
+function parseKnownCallers(name) {
+  const raw = optional(name);
+  const callers = new Map();
+  if (!raw) return callers;
+
+  for (const entry of raw.split(',')) {
+    const trimmed = entry.trim();
+    if (!trimmed) continue;
+    const separator = trimmed.indexOf('=');
+    if (separator === -1) {
+      fail(`${name} entries must be <E.164>=<label>, got "${trimmed}"`);
+    }
+    const number = trimmed.slice(0, separator).trim();
+    const label = trimmed.slice(separator + 1).trim();
+    if (!E164.test(number)) {
+      fail(`${name} entry "${trimmed}" does not start with an E.164 number`);
+    }
+    if (!label) {
+      fail(`${name} entry "${trimmed}" has an empty label`);
+    }
+    if (label.length > 64) {
+      fail(`${name} label for ${number} is longer than 64 characters`);
+    }
+    if (callers.has(number)) {
+      fail(`${name} lists ${number} more than once`);
+    }
+    callers.set(number, label);
+  }
+  return callers;
+}
+
 const twilioWebhookBaseUrl = sanitizeBaseUrl(
   optional('TWILIO_WEBHOOK_BASE_URL') || `https://${tunnelHostname}`
 );
@@ -138,6 +182,7 @@ module.exports = {
   streamStartTimeoutMs: parsePositiveInt('STREAM_START_TIMEOUT_MS', '3000'),
   twilioMediaPayloadMaxBytes: parsePositiveInt('TWILIO_MEDIA_PAYLOAD_MAX_BYTES', '512'),
   shutdownGraceMs: parsePositiveInt('SHUTDOWN_GRACE_MS', '10000'),
+  knownCallers: parseKnownCallers('KNOWN_CALLERS'),
   streamAuthSecret,
   streamAuthTtlSec: 90,
   statusApiToken,
