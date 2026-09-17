@@ -293,6 +293,36 @@ class MediaStream {
     this.stopRingback('homekit-session-started');
   }
 
+  /**
+   * The counterpart to markHomekitSessionStarted, called once the last HomeKit
+   * streaming session stops.
+   *
+   * Without it, forwarding stayed on for the life of the call while the
+   * PassThrough's consumer was gone: _stopSession kills ffIn and unpipes it, so
+   * Twilio audio accumulated in a buffer nobody drained. That matters twice
+   * over. The buffer holds 4 s (32 KB of 8 kHz mu-law), so a longer gap logs
+   * media-frames-dropped for audio that was never going anywhere; and on
+   * reopening the live view the new ffIn inherits the backlog and drains it
+   * faster than real time, which is the "buffered startup audio burst" the
+   * inbound spawn comment already warns about. Either way a rejoin starts
+   * behind live instead of at it.
+   *
+   * This restores the invariant the write path documents: forward live-view
+   * audio only.
+   */
+  markHomekitSessionEnded() {
+    if (!this.hasHomekitSession) return;
+    this.hasHomekitSession = false;
+    // Otherwise a later resume would log against a run of drops that ended
+    // when forwarding stopped.
+    this.droppingFrames = false;
+    this.logger.info('HomeKit session ended; no longer forwarding media', {
+      callSid: this.currentCallSid || undefined,
+      event: 'homekit-session-ended',
+      reason: 'no-active-hap-session',
+    });
+  }
+
   sendRingbackFrame() {
     if (!this.currentCallSid || !this.started || this.closed) return;
 

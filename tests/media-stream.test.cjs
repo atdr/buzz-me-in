@@ -201,6 +201,65 @@ describe('media stream protocol', () => {
     h.connection.close();
   });
 
+  // The counterpart. Forwarding used to stay on for the life of the call, so
+  // once _stopSession killed and unpiped ffIn, Twilio audio piled up in a
+  // PassThrough with no consumer: dropped frames past the 4 s buffer, and a
+  // backlog for the next ffIn to burst through on reopen.
+  test('media stops being forwarded once the last HomeKit session ends', () => {
+    const h = createHarness();
+    sendStart(h.connection);
+    h.stream.markHomekitSessionStarted();
+
+    send(h.connection, { event: 'media', media: { payload: MULAW_FRAME_B64 } });
+    assert.equal(h.stream.mulawStream.readableLength, 160);
+
+    h.stream.markHomekitSessionEnded();
+    send(h.connection, { event: 'media', media: { payload: MULAW_FRAME_B64 } });
+    assert.equal(
+      h.stream.mulawStream.readableLength,
+      160,
+      'nothing may accumulate once the consumer is gone'
+    );
+
+    // Activity must still be tracked, or the stale reaper could take the call
+    // while it is deliberately being held open for the lock tile.
+    assert.deepEqual(h.state.lastActivity, {
+      callSid: VALID_CALL_SID,
+      eventName: 'twilio-media',
+    });
+    h.connection.close();
+  });
+
+  test('reopening the live view resumes forwarding from live', () => {
+    const h = createHarness();
+    sendStart(h.connection);
+    h.stream.markHomekitSessionStarted();
+    h.stream.markHomekitSessionEnded();
+
+    // The gap: audio arriving with no live view must not be kept for later.
+    for (let i = 0; i < 10; i++) {
+      send(h.connection, { event: 'media', media: { payload: MULAW_FRAME_B64 } });
+    }
+    assert.equal(h.stream.mulawStream.readableLength, 0, 'the gap must leave no backlog');
+
+    h.stream.markHomekitSessionStarted();
+    send(h.connection, { event: 'media', media: { payload: MULAW_FRAME_B64 } });
+    assert.equal(
+      h.stream.mulawStream.readableLength,
+      160,
+      'the reopened view starts at live audio, not behind it'
+    );
+    h.connection.close();
+  });
+
+  test('ending a session that never started is a no-op', () => {
+    const h = createHarness();
+    sendStart(h.connection);
+    h.stream.markHomekitSessionEnded();
+    assert.equal(h.stream.hasHomekitSession, false);
+    h.connection.close();
+  });
+
   test('oversized media payload closes the connection', () => {
     const h = createHarness();
     sendStart(h.connection);

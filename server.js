@@ -67,6 +67,11 @@ homekit.setOnHapSessionStarted((callSid) => {
   if (mediaStream) mediaStream.markHomekitSessionStarted();
 });
 
+homekit.setOnHapSessionEnded((callSid) => {
+  const mediaStream = activeMediaStreamsByCallSid.get(callSid);
+  if (mediaStream) mediaStream.markHomekitSessionEnded();
+});
+
 // ---------------------------------------------------------------------------
 // Ringtone — one UK-style ringback cycle (400Hz+450Hz dual tone), generated
 // in-process as a WAV buffer. Served at GET /ringtone for debug/manual
