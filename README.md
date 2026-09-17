@@ -448,12 +448,12 @@ Open the live view, then dismiss it on the iPhone (tap the X / end button).
 **Pass (server log):**
 
 ```text
-{"ts":"...","level":"info","message":"Hangup scheduled after grace period","component":"homekit","event":"hangup-scheduled","reason":"homekit-session-stopped","callSid":"CA...","sessionId":"...","graceMs":3000}
+{"ts":"...","level":"info","message":"Hangup scheduled after grace period","component":"homekit","event":"hangup-scheduled","reason":"homekit-session-stopped","callSid":"CA...","sessionId":"...","graceMs":8000}
 {"ts":"...","level":"info","message":"Inbound ffmpeg exited","component":"homekit","event":"ffin-exit","reason":"nonzero-exit","exitCode":null,"sessionId":"..."}
 {"ts":"...","level":"info","message":"Hanging up call","component":"twilio-api","event":"hangup","callSid":"CA..."}
 ```
 
-The call is not hung up the instant the view closes. It is held open for `HOMEKIT_HANGUP_GRACE_MS` (default 3000) so the lock tile still has a call to send DTMF to, then hung up. Reopening the view inside that window logs `hangup-cancelled` instead and the call continues; if the caller hangs up first, the pending hangup logs `hangup-skipped` and does nothing.
+The call is not hung up the instant the view closes. It is held open for `HOMEKIT_HANGUP_GRACE_MS` (default 8000) so the lock tile still has a call to send DTMF to, then hung up. Reopening the view inside that window logs `hangup-cancelled` instead and the call continues; if the caller hangs up first, the pending hangup logs `hangup-skipped` and does nothing.
 
 **Pass (Twilio):** The call shows as completed in the [Twilio Console call log](https://console.twilio.com/us1/monitor/logs/calls).
 
