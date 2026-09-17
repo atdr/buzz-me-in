@@ -160,6 +160,33 @@ function buildTwiml(callSid) {
 </Response>`;
 }
 
+/**
+ * A repeated form field parses to an array, so take the first value. A sender
+ * can repeat From freely; the signature covers the whole body, not its shape.
+ *
+ * @param {string | string[] | undefined} value
+ * @returns {string | undefined}
+ */
+function firstFormValue(value) {
+  if (Array.isArray(value)) return value.length ? value[0] : undefined;
+  return value;
+}
+
+/**
+ * Label for a calling number, from KNOWN_CALLERS. Returns 'unknown' for a
+ * number we have no label for, and null when nothing was configured, so the
+ * field is absent rather than misleadingly saying 'unknown' on every call.
+ *
+ * @param {string | string[] | undefined} from
+ * @returns {string | null}
+ */
+function describeCaller(from) {
+  if (config.knownCallers.size === 0) return null;
+  const number = firstFormValue(from);
+  if (!number) return 'unknown';
+  return config.knownCallers.get(number.trim()) || 'unknown';
+}
+
 async function handleTwimlRequest(req, res) {
   twimlLogger.info('Incoming TwiML request', {
     event: 'twiml-request',
@@ -195,9 +222,18 @@ async function handleTwimlRequest(req, res) {
   const formData = parseFormUrlEncoded(rawBody);
   const callSid = normalizeCallSid(formData.CallSid);
   const body = buildTwiml(callSid);
+  // Who rang. Logged here rather than on twiml-request, which fires before the
+  // body is read and before the signature is checked: an unverified From is
+  // whatever the sender typed. forwardedFrom is the number that diverted the
+  // call, which is the intercom panel's signature when the building's line
+  // forwards to us.
+  const caller = describeCaller(formData.From);
   twimlLogger.info('TwiML response generated', {
     event: 'twiml-response',
     callSid: callSid || undefined,
+    from: firstFormValue(formData.From) || undefined,
+    forwardedFrom: firstFormValue(formData.ForwardedFrom) || undefined,
+    caller: caller || undefined,
   });
   res.writeHead(200, {
     'Content-Type': 'text/xml',
@@ -501,6 +537,7 @@ module.exports = {
   main,
   beginShutdown,
   buildTwiml,
+  describeCaller,
   handleRequest,
   isAuthorizedForStatus,
   isValidTwilioRequest,
