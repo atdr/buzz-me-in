@@ -29,6 +29,7 @@ npm run test
 ## Test layout
 
 - `tests/config.test.cjs` - configuration loading and validation behavior
+- `tests/known-callers.test.cjs` - `KNOWN_CALLERS` parsing and the caller label attached to `twiml-response`
 - `tests/state.test.cjs` - call session lifecycle and stale-session cleanup
 - `tests/stream-auth.test.cjs` - stream token issue/verify, replay and tamper rejection, TwiML builder, `/media` handshake signature verification (URL variants, forgery rejection, candidate-set pin)
 - `tests/media-stream.test.cjs` - Twilio media stream protocol (start/media/stop, token checks, teardown)

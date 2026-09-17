@@ -26,19 +26,19 @@ Note: `"event":"start"` is emitted at **info** level when the start is accepted 
 
 Compare a failing call's journal against this order. The first missing/deviating event localises the fault.
 
-| #   | component | event                                                 | Meaning                                                       |
-| --- | --------- | ----------------------------------------------------- | ------------------------------------------------------------- |
-| 1   | twiml     | `twiml-request`                                       | Twilio webhook arrived                                        |
-| 2   | twiml     | `twiml-response`                                      | Signature valid, TwiML with token returned                    |
-| 3   | media-ws  | `media-ws-handshake-verified` (debug)                 | Handshake `X-Twilio-Signature` verified before accept         |
-| 4   | media-ws  | `media-ws-accepted`                                   | Twilio opened the WebSocket                                   |
-| 5   | media-ws  | `connected`                                           | Protocol handshake frame                                      |
-| 6   | media-ws  | `start` (info)                                        | Token verified, call session started                          |
-| 7   | homekit   | `doorbell-triggered`                                  | HomeKit notified                                              |
-| 8   | homekit   | `mulaw-stream-bound`                                  | User opened live view; Twilio audio piped into inbound ffmpeg |
-| 9   | media-ws  | `ringback-stopped` (reason `homekit-session-started`) | Ringback ceases once the HomeKit session is up                |
-| 10  | media-ws  | `stop` then `session-ended`                           | Caller hung up; teardown                                      |
-| 11  | homekit   | `ffin-exit` / `ffout-exit`                            | ffmpeg processes reaped                                       |
+| #   | component | event                                                 | Meaning                                                                                                                                              |
+| --- | --------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | twiml     | `twiml-request`                                       | Twilio webhook arrived                                                                                                                               |
+| 2   | twiml     | `twiml-response`                                      | Signature valid, TwiML with token returned. Carries `from`, `forwardedFrom` and, when `KNOWN_CALLERS` is set, `caller` — the only record of who rang |
+| 3   | media-ws  | `media-ws-handshake-verified` (debug)                 | Handshake `X-Twilio-Signature` verified before accept                                                                                                |
+| 4   | media-ws  | `media-ws-accepted`                                   | Twilio opened the WebSocket                                                                                                                          |
+| 5   | media-ws  | `connected`                                           | Protocol handshake frame                                                                                                                             |
+| 6   | media-ws  | `start` (info)                                        | Token verified, call session started                                                                                                                 |
+| 7   | homekit   | `doorbell-triggered`                                  | HomeKit notified                                                                                                                                     |
+| 8   | homekit   | `mulaw-stream-bound`                                  | User opened live view; Twilio audio piped into inbound ffmpeg                                                                                        |
+| 9   | media-ws  | `ringback-stopped` (reason `homekit-session-started`) | Ringback ceases once the HomeKit session is up                                                                                                       |
+| 10  | media-ws  | `stop` then `session-ended`                           | Caller hung up; teardown                                                                                                                             |
+| 11  | homekit   | `ffin-exit` / `ffout-exit`                            | ffmpeg processes reaped                                                                                                                              |
 
 (If HomeKit hangs up first, expect `ffin-exit` → `hangup` (component `twilio-api`) instead of 10.)
 
