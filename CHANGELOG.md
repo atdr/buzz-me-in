@@ -1,5 +1,20 @@
 # Changelog
 
+## [2.2.0](https://github.com/atdr/buzz-me-in/compare/v2.1.1...v2.2.0) (2026-09-24)
+
+
+### Features
+
+* **server:** verify Twilio signature on the /media handshake ([#84](https://github.com/atdr/buzz-me-in/issues/84)) ([812a6cf](https://github.com/atdr/buzz-me-in/commit/812a6cff7fe6c08dca5422d4ce80038b89443a9d))
+
+
+### Bug Fixes
+
+* **deps:** bump dotenv from 17.4.2 to 18.0.1 ([#99](https://github.com/atdr/buzz-me-in/issues/99)) ([80926b9](https://github.com/atdr/buzz-me-in/commit/80926b938f0090a5647128b0b61a201a3410fd21))
+* **deps:** bump twilio from 6.1.0 to 6.1.1 ([#92](https://github.com/atdr/buzz-me-in/issues/92)) ([99d6a21](https://github.com/atdr/buzz-me-in/commit/99d6a2108ab49ef61869e246baa8db00e1d99680))
+* **deps:** bump zod from 4.5.4 to 4.6.5 ([#93](https://github.com/atdr/buzz-me-in/issues/93)) ([f510171](https://github.com/atdr/buzz-me-in/commit/f5101717d62ade5f07dd7e3ae7ed9c2f22d60592))
+* **homekit:** declare mono layout on the inbound audio input ([#87](https://github.com/atdr/buzz-me-in/issues/87)) ([f432af1](https://github.com/atdr/buzz-me-in/commit/f432af1fece8a7c1609617208cd9dc3fd5f76cfa))
+
 ## [2.1.1](https://github.com/atdr/buzz-me-in/compare/v2.1.0...v2.1.1) (2026-09-09)
 
 
