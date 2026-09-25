@@ -158,6 +158,7 @@ const activeSessions = new Map();
 // PassThrough stream set by server.js each time a Twilio call connects.
 let currentMulawStream = null;
 let onHapSessionStarted = null;
+let onHapSessionEnded = null;
 
 function getActiveCall() {
   return state.getActiveCall();
@@ -565,7 +566,13 @@ function _stopSession(sessionID, hangUp) {
   // it kills a live call: seen on 2026-09-12, where session ac5c8c21 stopping
   // ended the call under session d332e46a three seconds into the stream.
   const activeCall = getActiveCall();
-  if (hangUp && activeCall && activeSessions.size === 0) {
+  if (activeSessions.size !== 0) return;
+
+  // ffIn is dead and unpiped by now, so tell the media stream to stop writing
+  // into a PassThrough with no consumer. See markHomekitSessionEnded.
+  if (activeCall && onHapSessionEnded) onHapSessionEnded(activeCall.callSid);
+
+  if (hangUp && activeCall) {
     scheduleHangUp(activeCall.callSid, sessionID);
   }
 }
@@ -888,6 +895,10 @@ function setOnHapSessionStarted(handler) {
   onHapSessionStarted = typeof handler === 'function' ? handler : null;
 }
 
+function setOnHapSessionEnded(handler) {
+  onHapSessionEnded = typeof handler === 'function' ? handler : null;
+}
+
 /**
  * Graceful shutdown: tear down streaming sessions and unpublish the
  * accessory so the mDNS advertisement does not linger after exit.
@@ -923,6 +934,7 @@ module.exports = {
   clearMulawPassthrough,
   endHapSession,
   setOnHapSessionStarted,
+  setOnHapSessionEnded,
   shutdown,
   // Exported for tests/homekit-hangup-grace.test.cjs. Reaching the deferred
   // hangup through the streaming delegate would mean standing up a full SRTP
