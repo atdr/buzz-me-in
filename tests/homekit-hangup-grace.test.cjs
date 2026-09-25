@@ -187,3 +187,73 @@ test('shutdown drops a pending hangup', async () => {
   await sleep(GRACE_MS * 2);
   assert.deepEqual(hangUps, [], 'a hangup must not fire against a process that is going away');
 });
+
+// ---------------------------------------------------------------------------
+// Through _stopSession, the path the live bug was actually on.
+//
+// 2026-09-12: calls died three seconds into the stream. HomeKit runs up to
+// cameraStreamCount sessions at once and starts a second one when you move
+// between the room view's camera tile and the full camera view. The STOP for
+// that second session scheduled a hangup while the first was still streaming.
+// Driving scheduleHangUp directly, as the cases above do, cannot see this: the
+// fault was in whether to schedule at all, not in the timer.
+// ---------------------------------------------------------------------------
+
+/** A session bare enough for _stopSession: no ffmpeg, no SDP to clean up. */
+function fakeSession(id) {
+  homekit.activeSessions.set(id, {});
+  return id;
+}
+
+test('a stop with another session still streaming does not end the call', async () => {
+  reset('CA-two-sessions');
+  fakeSession('session-a');
+  fakeSession('session-b');
+
+  homekit._stopSession('session-b', /* hangUp= */ true);
+
+  await sleep(GRACE_MS * 2);
+  assert.deepEqual(hangUps, [], 'the surviving session is still streaming; the call must live');
+  assert.equal(homekit.activeSessions.size, 1, 'only the stopped session should be gone');
+
+  homekit.activeSessions.clear();
+});
+
+test('the last session stopping does end the call', async () => {
+  reset('CA-last-session');
+  fakeSession('session-only');
+
+  homekit._stopSession('session-only', /* hangUp= */ true);
+
+  assert.deepEqual(
+    await waitForHangUp(),
+    ['CA-last-session'],
+    'with no sessions left the user is finished and the call must end'
+  );
+});
+
+test('stopping every session in turn ends the call exactly once', async () => {
+  reset('CA-drain');
+  fakeSession('session-a');
+  fakeSession('session-b');
+
+  homekit._stopSession('session-a', /* hangUp= */ true);
+  homekit._stopSession('session-b', /* hangUp= */ true);
+
+  await waitForHangUp();
+  await sleep(GRACE_MS);
+  assert.deepEqual(hangUps, ['CA-drain'], 'draining the sessions must not hang up twice');
+});
+
+test('a caller-initiated teardown never hangs up, whatever is streaming', async () => {
+  // endHapSession runs on the Twilio stop: the call is already gone.
+  reset('CA-caller-left');
+  fakeSession('session-a');
+  fakeSession('session-b');
+
+  homekit.endHapSession();
+
+  await sleep(GRACE_MS * 2);
+  assert.deepEqual(hangUps, [], 'the caller hung up; there is nothing left to hang up');
+  assert.equal(homekit.activeSessions.size, 0, 'endHapSession must drain every session');
+});
