@@ -1,9 +1,13 @@
 # buzz-me-in
 
-Apartment intercom to Apple HomeKit, bridged over Twilio.
-
+[![npm](https://img.shields.io/npm/v/buzz-me-in.svg?style=flat-square)](https://www.npmjs.com/package/buzz-me-in)
+[![npm@beta](https://img.shields.io/npm/v/buzz-me-in/beta.svg?style=flat-square&label=npm%40beta)](https://www.npmjs.com/package/buzz-me-in/v/beta)
+[![npm](https://img.shields.io/npm/dt/buzz-me-in.svg?style=flat-square)](https://www.npmjs.com/package/buzz-me-in)
+[![GitHub last commit](https://img.shields.io/github/last-commit/atdr/buzz-me-in.svg?style=flat-square)](https://github.com/atdr/buzz-me-in)
 [![CI](https://img.shields.io/github/actions/workflow/status/atdr/buzz-me-in/ci.yml?style=flat-square&label=CI)](https://github.com/atdr/buzz-me-in/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/codecov/c/github/atdr/buzz-me-in?style=flat-square&label=coverage)](https://codecov.io/gh/atdr/buzz-me-in)
+
+Apartment intercom to Apple HomeKit, bridged over Twilio.
 
 A Raspberry Pi server that bridges an apartment intercom system into Apple HomeKit. When someone presses the intercom buzzer, your iPhone/HomePod receives a doorbell notification with a live camera tile. You can hear the caller, speak back, and unlock the door — all from the Home app or via Siri.
 
