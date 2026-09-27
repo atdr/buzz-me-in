@@ -26,6 +26,7 @@ const { spawn } = require('child_process');
 const config = require('./src/core/config');
 const state = require('./src/core/state');
 const { sendDtmfSequence, sendMulawAudio } = require('./src/core/mulaw-audio');
+const { buildInboundFfmpegArgs } = require('./src/core/inbound-ffmpeg-args');
 const {
   removeReturnAudioSdp,
   removeSdpDir,
@@ -281,127 +282,23 @@ function _startSession(sessionID, s, request, callback) {
   // Reopening the live view inside the grace window means the user is not
   // finished after all.
   cancelPendingHangUp('homekit-session-restarted');
-  const videoParams = srtpParams(s.hkVideoKey, s.hkVideoSalt);
-  const audioParams = srtpParams(s.hkAudioKey, s.hkAudioSalt);
-  const video = request.video;
   const audio = request.audio;
-  const videoBitrate = Math.max(64, video.max_bit_rate || 200);
-  const videoBufferSize = Math.max(videoBitrate * 2, 128);
-  const mtu = video.mtu || 1316;
 
-  // -------------------------------------------------------------------------
-  // Inbound ffmpeg
-  //
-  // Input 0  – raw mulaw/8kHz from Twilio via stdin
-  //   Let the raw audio demuxer derive PTS from sample count. Using wall-clock
-  //   timestamps breaks when ffmpeg drains the buffered startup audio burst.
-  //   -ch_layout declares mono rather than -ac counting one channel: a count
-  //   leaves the layout unset, so the decoder guesses it and logs "Guessed
-  //   Channel Layout: mono" on every call. Our stderr handler is a warn, so
-  //   that guess looked like a fault in the journal. Needs ffmpeg >= 5.1.
-  //
-  // Input 1  – synthetic black video (lavfi color source)
-  //   Generates H.264 Baseline/3.1 frames at 15 fps.
-  //   HomeKit requires a video track; there is no real camera feed.
-  //   keyint_min=15 / -g 15 forces an IDR frame every second — HomeKit
-  //   requests it when the live view is first opened; without frequent IDRs
-  //   the video stays blank until the next natural keyframe.
-  //
-  // Two separate SRTP outputs — no muxing, no pts coupling between streams.
-  // -------------------------------------------------------------------------
-  const ffIn = spawn('ffmpeg', [
-    '-y',
-    '-loglevel',
-    'warning',
-
-    // ---- Input 0: raw mulaw from Twilio ----
-    '-thread_queue_size',
-    '512',
-    '-f',
-    'mulaw',
-    '-ar',
-    '8000',
-    '-ch_layout',
-    'mono',
-    '-i',
-    'pipe:0',
-
-    // ---- Input 1: blank video ----
-    '-f',
-    'lavfi',
-    '-i',
-    'color=black:s=1280x720:r=15',
-
-    // ---- Video output → HomeKit SRTP ----
-    '-map',
-    '1:v',
-    '-c:v',
-    'libx264',
-    '-profile:v',
-    'baseline',
-    '-level:v',
-    '3.1',
-    '-preset',
-    'ultrafast',
-    '-tune',
-    'zerolatency',
-    '-pix_fmt',
-    'yuv420p',
-    '-b:v',
-    `${videoBitrate}k`,
-    '-maxrate',
-    `${videoBitrate}k`,
-    '-bufsize',
-    `${videoBufferSize}k`,
-    '-g',
-    String(video.fps || 15),
-    '-keyint_min',
-    String(video.fps || 15),
-    '-payload_type',
-    String(video.pt),
-    '-ssrc',
-    String(s.videoSsrc),
-    '-f',
-    'rtp',
-    '-srtp_out_suite',
-    'AES_CM_128_HMAC_SHA1_80',
-    '-srtp_out_params',
-    videoParams,
-    `srtp://${s.targetAddress}:${s.hkVideoPort}?rtcpport=${s.hkVideoPort}&localrtcpport=${s.hkVideoPort}&pkt_size=${mtu}`,
-
-    // ---- Audio output → HomeKit SRTP (Opus/16kHz) ----
-    //
-    // Note on codec choice: libopus is in every standard ffmpeg build.
-    // If you prefer AAC-ELD (required by some older HomeKit devices), compile
-    // ffmpeg with --enable-libfdk-aac --enable-nonfree and change:
-    //   '-c:a', 'libfdk_aac', '-profile:a', 'aac_eld',
-    // and update streamingOptions.audio.codecs below to AAC_ELD.
-    '-map',
-    '0:a',
-    '-c:a',
-    'libopus',
-    '-ar',
-    '16000',
-    '-ac',
-    '1',
-    '-b:a',
-    '24k',
-    '-application',
-    'voip',
-    '-frame_duration',
-    '20',
-    '-payload_type',
-    String(audio.pt),
-    '-ssrc',
-    String(s.audioSsrc),
-    '-f',
-    'rtp',
-    '-srtp_out_suite',
-    'AES_CM_128_HMAC_SHA1_80',
-    '-srtp_out_params',
-    audioParams,
-    `srtp://${s.targetAddress}:${s.hkAudioPort}?rtcpport=${s.hkAudioPort}&localrtcpport=${s.hkAudioPort}`,
-  ]);
+  // Inbound ffmpeg: see src/core/inbound-ffmpeg-args.js for the pipeline.
+  const ffIn = spawn(
+    'ffmpeg',
+    buildInboundFfmpegArgs({
+      video: request.video,
+      audio,
+      videoParams: srtpParams(s.hkVideoKey, s.hkVideoSalt),
+      audioParams: srtpParams(s.hkAudioKey, s.hkAudioSalt),
+      targetAddress: s.targetAddress,
+      hkVideoPort: s.hkVideoPort,
+      hkAudioPort: s.hkAudioPort,
+      videoSsrc: s.videoSsrc,
+      audioSsrc: s.audioSsrc,
+    })
+  );
 
   ffIn.stderr.on('data', (d) => {
     logger.warn('Inbound ffmpeg stderr', {

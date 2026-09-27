@@ -21,6 +21,8 @@ This document focuses on stable architecture concepts. It intentionally avoids t
   - HMAC-signed one-time stream token issue and verify
 - `src/core/mulaw-audio.js`
   - mu-law audio generation: DTMF tones, ringback cycle, chunked send helpers
+- `src/core/inbound-ffmpeg-args.js`
+  - argument list for the inbound ffmpeg process (mu-law stdin → Opus/SRTP audio plus synthetic H.264/SRTP video), kept pure so it is testable without spawning ffmpeg
 - `src/core/ws-events-schema.js`
   - Twilio WebSocket envelope validation and media payload parsing
 - `src/core/safe-equal.js`
