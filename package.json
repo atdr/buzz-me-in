@@ -15,7 +15,7 @@
   ],
   "main": "server.js",
   "bin": {
-    "buzz-me-in": "./server.js"
+    "buzz-me-in": "server.js"
   },
   "files": [
     "server.js",
