@@ -2,6 +2,17 @@
   "name": "buzz-me-in",
   "version": "2.1.1",
   "description": "HomeKit-compatible apartment intercom via Twilio media streams",
+  "keywords": [
+    "homekit",
+    "intercom",
+    "twilio",
+    "doorbell",
+    "smart-home",
+    "raspberry-pi",
+    "hap-nodejs",
+    "ffmpeg",
+    "nodejs"
+  ],
   "main": "server.js",
   "bin": {
     "buzz-me-in": "./server.js"
