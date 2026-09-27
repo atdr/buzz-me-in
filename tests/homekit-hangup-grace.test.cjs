@@ -257,3 +257,22 @@ test('a caller-initiated teardown never hangs up, whatever is streaming', async 
   assert.deepEqual(hangUps, [], 'the caller hung up; there is nothing left to hang up');
   assert.equal(homekit.activeSessions.size, 0, 'endHapSession must drain every session');
 });
+
+test('the media stream is told only when the last session ends', async () => {
+  // Same rule as the hangup: a stop while another session is still streaming
+  // must not turn forwarding off, or the surviving live view goes silent.
+  reset('CA-ended-notify');
+  const ended = [];
+  homekit.setOnHapSessionEnded((callSid) => ended.push(callSid));
+  fakeSession('session-a');
+  fakeSession('session-b');
+
+  homekit._stopSession('session-a', /* hangUp= */ true);
+  assert.deepEqual(ended, [], 'session-b is still streaming and still needs audio');
+
+  homekit._stopSession('session-b', /* hangUp= */ true);
+  assert.deepEqual(ended, ['CA-ended-notify'], 'the last session ending stops forwarding');
+
+  homekit.setOnHapSessionEnded(null);
+  homekit.cancelPendingHangUp('test-cleanup');
+});

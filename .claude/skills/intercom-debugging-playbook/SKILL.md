@@ -63,7 +63,7 @@ Compare a failing call's journal against this order. The first missing/deviating
 
 - **server**: `server-start`, `request-handler-error`, `session-stale`, `stale-close-failed`, `shutdown-start`, `shutdown-force-exit`, `shutdown-complete`, `uncaught-exception`, `unhandled-rejection`
 - **twiml**: `twiml-request`, `twiml-response`, `twiml-rejected`, `twiml-body-read-failed`, `twiml-unhandled-error`
-- **media-ws**: `media-ws-accepted`, `connected`, `start`, `media`, `stop`, `session-ended`, `ringback-stopped`, `media-frames-dropped`, `media-frames-resumed`, `media-ws-message-too-large`, `media-ws-invalid-json`, `media-ws-invalid-event-payload`, `media-ws-unsupported-event`
+- **media-ws**: `media-ws-accepted`, `connected`, `start`, `media`, `stop`, `session-ended`, `ringback-stopped`, `media-frames-dropped`, `media-frames-resumed`, `media-ws-message-too-large`, `media-ws-invalid-json`, `media-ws-invalid-event-payload`, `media-ws-unsupported-event`, `media-ws-handshake-verified`, `media-ws-rejected`, `homekit-session-ended`
 - **homekit**: `accessory-published`, `accessory-qr-setup`, `accessory-qr-suppressed`, `accessory-start-repeated`, `accessory-unpublish-failed`, `snapshot-ready`, `doorbell-triggered`, `mulaw-stream-bound`, `mulaw-stream-rebound`, `stream-prepare-failed`, `stream-start-failed`, `ffin-stderr`, `ffin-exit`, `ffout-stderr`, `ffout-exit`, `unlock-requested`, `unlock-failed`, `unlock-no-active-call`, `hangup-scheduled`, `hangup-cancelled`, `hangup-skipped`, `hangup-call-already-ended`, `hangup-call-failed`
 - **twilio-api**: `hangup`
 - **state**: `stale-handler-failed`
