@@ -1,11 +1,11 @@
 ---
 name: intercom-two-way-audio-campaign
-description: Decision-gated diagnostic and fix campaign for the project's hardest OPEN problem — intermittent two-way audio failure (no/one-way/garbled/dropping audio during a HomeKit live view; the open remainder is the caller → iPhone leg at session startup, #102). Use when audio misbehaves during a call and the quick triage in intercom-debugging-playbook points here. Follow the gates in order; success is measured in log events and captured packets, never judged by ear.
+description: Decision-gated diagnostic and fix campaign for the project's historically hardest problem — intermittent two-way audio failure (no/one-way/garbled/dropping audio during a HomeKit live view; the startup burst and dropouts on the caller → iPhone leg were fixed in #107). Use when audio misbehaves during a call and the quick triage in intercom-debugging-playbook points here. Follow the gates in order; success is measured in log events and captured packets, never judged by ear.
 ---
 
 # Campaign: intermittent two-way audio
 
-**Status: OPEN, narrowed** (updated 2026-09-27). On iOS 26 the maintainer reports audio working reliably in both directions, apart from niggles at session startup. The 2026-05-03 session (PR #21, 12 commits, 2 reverts) fixed the deterministic causes. What remains is tracked in #102 and was localised on 2026-09-27 to the **Pi → iPhone** leg (caller's voice): ffIn is silent for ~3 s after `mulaw-stream-bound`, then dumps ~4 s of audio in one second, then delivers in clumps with 80–183 ms gaps. Twilio → Pi, iPhone → Pi, and Pi → Twilio were all measured clean in the same calls.
+**Status: no known open fault** (updated 2026-09-27). The 2026-05-03 session (PR #21, 12 commits, 2 reverts) fixed the deterministic causes. The remainder, #102, was two separate bugs on the **Pi → iPhone** leg (caller's voice), both fixed in #107: ffmpeg probed its stdin input for ~3.2 s before sending anything, then dumped the backlog in one burst, so first words were lost; and the outbound Opus RTP was clocked at 48 kHz where HomeKit expects the negotiated 16 kHz, which on iOS 27 dropped words throughout the call. Keep the campaign for the next report of degraded audio.
 
 **Use this skill when** two-way audio fails or degrades and you intend to diagnose or fix it.
 **Do NOT use it for**: first-pass triage of any call problem (`intercom-debugging-playbook` first), protocol background (`telephony-audio-reference`).
@@ -60,7 +60,8 @@ Reproduce: dial the Twilio number from a phone, answer the doorbell notification
 
 - `mulaw-stream-bound` absent → the PassThrough never attached: inspect `attachMulawStreamToSession` preconditions in `homekit.js` (destroyed stream? ffIn stdin gone?). The rebind path (`mulaw-stream-rebound`) covers a call that starts while a live view is already open.
 - `ffin-stderr` codec errors → `ffmpeg -codecs | grep -E "libx264|libopus"` on the Pi.
-- **Known startup behaviour (#102), not a new fault:** ffIn emits nothing for ~3 s after `mulaw-stream-bound`, then ~200 packets (≈4 s of audio) in the first second. The iPhone appears to discard the burst, so the caller's first words after the live view opens are lost. Ringback stops at the start of that window, which is exactly when a caller would start speaking. Since #95 there is no cross-session backlog, so the burst is ffmpeg startup, not queued audio.
+- **Startup is ~0.1 s since #107.** ffIn's first audio packet should leave ~100–150 ms after `mulaw-stream-bound`, with ~50 packets in the first second. A multi-second silence followed by a ~200-packet burst means the mu-law input's `-probesize 32 -analyzeduration 0` has been lost: ffmpeg then probes stdin for ~3 s and the caller's first words are dropped.
+- **Offline bench first.** Both #102 bugs reproduced without a phone: run ffIn's exact argument list on the Pi, feed recorded mu-law at real time (160 bytes every 20 ms), send the SRTP to local UDP ports, and time the packets and read their RTP timestamps. It turns a flag trial into seconds, not a test call.
 - Continuous `media-frames-dropped` → ffIn stdin is not consuming; capture `ffin-stderr` and check CPU (`top`) — an overloaded Pi stalls x264 encoding first (`-preset ultrafast` is already set).
 
 ### Gate 3 — outbound path, controller → server (the historically cursed half)
@@ -79,7 +80,7 @@ sudo tcpdump -i any -n "udp port <PORT>" -c 10 -X
 
 - **No SDP file** → START never reached `_startSession`; check `stream-prepare-failed` and HAP negotiation in the journal.
 - **No packets** → the controller isn't sending, or they're arriving on a different interface/port: re-run tcpdump without the port filter; verify the iPhone mic is unmuted in the live view; check `prepareStream` returned the right address (`getLocalIp()` picks the first non-internal IPv4 — multi-homed Pis can advertise the wrong interface: **known candidate cause**).
-- **RTP clock is not a mismatch to chase here.** The controller clocks its Opus RTP timestamps at the negotiated sample rate (320 ticks per 20 ms at 16 kHz), while the return SDP declares `opus/48000/2` and the Pi's own outbound Opus uses 48 kHz (960 ticks). Verified 2026-09-27: ffOut decodes the controller's audio correctly regardless. Whether the controller minds the Pi's 48 kHz clock is open in #102.
+- **RTP clock.** HomeKit clocks Opus RTP timestamps at the negotiated sample rate: 320 ticks per 20 ms at 16 kHz, in both directions. On this return leg the SDP still declares `opus/48000/2` and ffOut decodes the controller's audio correctly regardless (verified 2026-09-27). The Pi's **outbound** Opus must match the controller: since #107 it is relabelled from ffmpeg's 48 kHz to 16 kHz with `setts`. Every step should be exactly 320; 960 means the dropouts of #102 are back.
 - **PT mismatch** → HAP-NodeJS negotiation vs actual RTP out of sync — historically a HAP version incompatibility (the PT-110 assumption bug class). Check `npm ls hap-nodejs` against the version pinned in package.json and recent HAP-NodeJS changelogs.
 - **Packets flow but `ffout-stderr` shows SRTP/decrypt errors** → key alignment regression (settled once in `5a235b7`; the return path must echo the controller's audio key+salt).
 
@@ -110,7 +111,7 @@ sudo tcpdump -i any -n "udp port <PORT>" -c 10 -X
 
 ## Provenance and maintenance
 
-Written 2026-07-04 against commit `d377b02`; status, Phase 0a, the probe, and the Gate 2/3 notes updated 2026-09-27 from hardware testing of #88/#89/#95/#96 (evidence in #102). Re-verify:
+Written 2026-07-04 against commit `d377b02`; status, Phase 0a, the probe, and the Gate 2/3 notes updated 2026-09-27 from hardware testing of #88/#89/#95/#96 (evidence in #102); #102 closed by #107 the same day. Re-verify:
 
 - Problem still open? Ask the maintainer; check `git log --oneline -20` for audio fixes since `d377b02`.
 - Revert fences still apply: `git log --oneline | grep -i revert`

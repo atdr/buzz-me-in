@@ -50,7 +50,7 @@ twilio api:core:calls:create --from <TWILIO_PHONE_NUMBER> --to <TWILIO_PHONE_NUM
 
 - The inbound leg hits `/twiml` exactly as a real visitor's call does, so the whole server path is exercised. `from` is the Twilio number itself, so add it to `KNOWN_CALLERS` with a label such as `Self test` to exercise labelling too, and remove it afterwards.
 - Caller → iPhone is judged by ear against a known phrase. iPhone → caller, including the unlock tone, is in the dual-channel recording in the Twilio console.
-- Size the pauses to the test: leave the live view time to open before anything spoken matters, since the first ~3 s of each session are currently lost (#102).
+- For audio, have the caller count continuously (`<Say loop="8">One. Two. … Ten.</Say>`) with no leading pause: from the moment the live view opens every number should be heard, and missing numbers localise a dropout in time.
 - The Twilio CLI is wrapped by a 1Password shell plugin and needs a real TTY, so the tester runs it in their own terminal.
 - `calls:create --to <mobile> --url https://<host>/twiml` is the opposite shape: Twilio calls the phone and the Pi serves the phone's leg. It is only valid when that phone is not the Home-app iPhone or relayed through it.
 

@@ -49,7 +49,7 @@ Applied to this repo:
 
 - Twilio fetches `/twiml` **before** answering (which is why a `<Reject>` verb can exist), so while the Pi builds the TwiML the visitor still hears the carrier's own ringing.
 - Returning `<Connect><Stream>` makes Twilio answer. From then on the call is connected and billed, and **the ringback the visitor hears is synthetic**, sent by the Pi as media frames so that the handover from the carrier's ringing is inaudible while the HomeKit doorbell chimes. It is a deliberate disguise: to the visitor the call has not been answered yet.
-- Consequently the end of ringback is the only "someone picked up" cue the visitor gets, and they tend to start speaking immediately. It currently fires at `homekit-session-started`, about 3 s before the Pi can deliver audio to the iPhone, so those first words are lost (#102). Stopping ringback on ffIn's first output instead would line the cue up with readiness.
+- Consequently the end of ringback is the only "someone picked up" cue the visitor gets, and they tend to start speaking immediately. It fires at `homekit-session-started`. Until #107 that was ~3 s before the Pi could deliver audio to the iPhone, so those first words were lost (#102); ffIn now starts in ~0.1 s, which lines the cue up with readiness.
 - On a Mac answering a mobile call via Continuity, the Mac's own ringtone keeps playing after "accept" until the iPhone has answered and the LAN relay is up. That is Apple's UI covering the relay handshake, not network ringback.
 
 ### Cadence and delivery
@@ -63,6 +63,9 @@ UK cadence, generated in `createRingbackMulawCycle`: 400 ms dual tone (400 Hz + 
 - SRTP here is always suite `AES_CM_128_HMAC_SHA1_80`. Key material = 16-byte master key + 14-byte salt, concatenated and base64-encoded (30 bytes → `srtpParams` in `homekit.js`); passed to ffmpeg as `-srtp_out_params` (sending) or an SDP `a=crypto:1 … inline:` line (receiving).
 - ffmpeg can only **receive** SRTP via an SDP file input; hence `/tmp/intercom_return_<sessionID>.sdp` plus `-protocol_whitelist file,crypto,udp,rtp`.
 - **`opus/48000/2` in the SDP is correct even though audio is 16 kHz mono.** RFC 7587 requires the Opus rtpmap to always declare 48000/2 regardless of the encoded bandwidth. Do not "fix" this.
+- **But HomeKit clocks Opus RTP _timestamps_ at the negotiated sample rate** (16 kHz: 320 ticks per 20 ms packet), not RFC 7587's 48 kHz. The iPhone sends that way, and go2rtc does the same. ffmpeg's RTP muxer hard-codes 48 kHz for Opus, so the outbound audio carries `-bsf:a setts=time_base=1/48000`: libopus stamps in 1/16000, the relabel stops the muxer rescaling, and each packet advances 320. With 960 the controller sees audio arriving three times slower than its timestamps, and iOS 27 drops words (#102, fixed in #107). `setts=ts=TS/3` rounds to 318/321; use the time-base form.
+- ffmpeg's PCM demuxer reads raw mu-law in 64 ms blocks (512 bytes at 8 kHz: bitrate/8/10, rounded down to a power of 2), so ffIn's Opus packets leave in groups of ~3. The controller's jitter buffer copes; it is not a fault.
+- On a pipe input with the format already declared, `-probesize 32 -analyzeduration 0` skips ~3 s of probing. `-fflags nobuffer` does the opposite of what its name suggests there: it removes the burst but leaves a constant 3 s delay.
 
 ## HAP-NodeJS camera streaming lifecycle
 
