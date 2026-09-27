@@ -32,7 +32,8 @@ npm run test
 - `tests/known-callers.test.cjs` - `KNOWN_CALLERS` parsing and the caller label attached to `twiml-response`
 - `tests/state.test.cjs` - call session lifecycle and stale-session cleanup
 - `tests/stream-auth.test.cjs` - stream token issue/verify, replay and tamper rejection, TwiML builder, `/media` handshake signature verification (URL variants, forgery rejection, candidate-set pin)
-- `tests/media-stream.test.cjs` - Twilio media stream protocol (start/media/stop, token checks, teardown)
+- `tests/media-upgrade.test.cjs` - `/media` handshake as Twilio sees it: 404/400/403/503 refusals, cap after signature, 1009 on an oversized frame, survival of malformed targets and socket errors
+- `tests/media-stream.test.cjs` - Twilio media stream protocol (start/media/stop, token checks, teardown, binary frames ignored, size limit in UTF-8 bytes)
 - `tests/ws-events-schema.test.cjs` - Twilio WS envelope and media payload validation
 - `tests/mulaw-audio.test.cjs` - mu-law encode/decode, DTMF and ringback generation, WAV rendering
 - `tests/log.test.cjs` - structured logger output, levels, and error normalization
