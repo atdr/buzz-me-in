@@ -316,7 +316,16 @@ function rejectUpgrade(socket, status, reason) {
   );
 }
 
-wsserver.on('upgrade', function (request, socket, head) {
+/**
+ * Handshake checks for the `/media` WebSocket, run before ws takes the socket.
+ * Exported so tests can mount it on their own HTTP server.
+ *
+ * @param {import('http').IncomingMessage} request
+ * @param {Duplex} socket
+ * @param {Buffer} head
+ * @returns {void}
+ */
+function handleMediaUpgrade(request, socket, head) {
   // A client that resets mid-handshake would otherwise raise an unhandled
   // 'error' and take the process down via the uncaughtException handler.
   socket.on('error', () => socket.destroy());
@@ -324,7 +333,15 @@ wsserver.on('upgrade', function (request, socket, head) {
     rejectUpgrade(socket, 503, 'Server shutting down');
     return;
   }
-  const path = new URL(request.url || '/', 'http://localhost').pathname;
+  // Node accepts an absolute-form target such as `http://[`, which URL cannot
+  // parse. Thrown here, it would exit the process via uncaughtException.
+  let path;
+  try {
+    path = new URL(request.url || '/', 'http://localhost').pathname;
+  } catch {
+    rejectUpgrade(socket, 400, 'Bad request');
+    return;
+  }
   if (path !== STREAM_PATH) {
     rejectUpgrade(socket, 404, 'Not found');
     return;
@@ -390,7 +407,9 @@ wsserver.on('upgrade', function (request, socket, head) {
     });
     new MediaStream(connection, mediaStreamDeps);
   });
-});
+}
+
+wsserver.on('upgrade', handleMediaUpgrade);
 
 /** @type {import('./src/core/media-stream').MediaStreamDeps} */
 const mediaStreamDeps = {
@@ -574,6 +593,7 @@ module.exports = {
   beginShutdown,
   buildTwiml,
   describeCaller,
+  handleMediaUpgrade,
   handleRequest,
   isAuthorizedForStatus,
   isValidTwilioRequest,
