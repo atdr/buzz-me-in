@@ -39,7 +39,7 @@ This document focuses on stable architecture concepts. It intentionally avoids t
 
 1. Twilio sends webhook request to `POST /twiml`.
 2. `server.js` validates Twilio signature and returns TwiML with signed bidirectional WS stream token.
-3. Twilio opens WebSocket stream on `/media`. The handshake's `X-Twilio-Signature` is verified before `accept()`. The signed token is passed as a TwiML `<Parameter>` and arrives in the `start` event's `customParameters`.
+3. Twilio opens WebSocket stream on `/media`. The handshake's `X-Twilio-Signature` is verified in the HTTP `upgrade` handler, before the socket is handed to `ws`. The signed token is passed as a TwiML `<Parameter>` and arrives in the `start` event's `customParameters`.
 4. Server validates/consumes one-time token and processes WS events (`connected/start/media/stop`).
 5. On `start`, server initializes call state and connects Twilio mulaw stream to HomeKit pipeline.
 6. HomeKit sessions use ffmpeg to:
