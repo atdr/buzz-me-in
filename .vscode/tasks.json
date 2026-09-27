@@ -1,0 +1,45 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "npm: typecheck",
+      "type": "npm",
+      "script": "typecheck",
+      "problemMatcher": []
+    },
+    {
+      "label": "npm: lint",
+      "type": "npm",
+      "script": "lint",
+      "problemMatcher": []
+    },
+    {
+      "label": "npm: format:check",
+      "type": "npm",
+      "script": "format:check",
+      "problemMatcher": []
+    },
+    {
+      "label": "npm: check",
+      "type": "npm",
+      "script": "check",
+      "problemMatcher": []
+    },
+    {
+      "label": "npm: test",
+      "type": "npm",
+      "script": "test",
+      "group": {
+        "kind": "test",
+        "isDefault": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Quality gates",
+      "dependsOn": ["npm: typecheck", "npm: lint", "npm: format:check", "npm: check", "npm: test"],
+      "dependsOrder": "sequence",
+      "problemMatcher": []
+    }
+  ]
+}

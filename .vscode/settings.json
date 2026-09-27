@@ -1,0 +1,9 @@
+{
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.formatOnSave": true,
+  "eslint.validate": ["javascript"],
+  "files.eol": "\n",
+  "nodejs-testing.env": {
+    "DOTENV_CONFIG_PATH": "/dev/null"
+  }
+}
