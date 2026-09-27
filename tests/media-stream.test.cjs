@@ -281,6 +281,37 @@ describe('media stream protocol', () => {
     assert.ok(h2.connection.closeCalls >= 1);
   });
 
+  test('the message limit counts UTF-8 bytes, not characters', () => {
+    // Valid JSON of about 2000 characters and 6000 bytes: under maxUtf8Bytes
+    // (4096) by character count, over it by byte count. It has to parse, or
+    // the JSON check closes the connection and hides a character-count limit.
+    const message = JSON.stringify({ event: 'connected', pad: '€'.repeat(2000) });
+    const control = createHarness();
+    control.connection.emit('message', Buffer.from(JSON.stringify({ event: 'connected' })), false);
+    assert.equal(control.connection.closeCalls, 0);
+
+    const h = createHarness();
+    h.connection.emit('message', Buffer.from(message), false);
+    assert.ok(h.connection.closeCalls >= 1);
+  });
+
+  test('binary frames are ignored, even when they hold a valid event', () => {
+    const h = createHarness();
+    const start = {
+      event: 'start',
+      start: {
+        callSid: VALID_CALL_SID,
+        streamSid: 'MZ123',
+        customParameters: { token: GOOD_TOKEN },
+      },
+    };
+    h.connection.emit('message', Buffer.from(JSON.stringify(start)), true);
+
+    assert.equal(h.stream.started, false);
+    assert.equal(h.stream.messageCount, 0);
+    assert.equal(h.connection.closeCalls, 0);
+  });
+
   test('stop tears the session down exactly once', () => {
     const h = createHarness();
     sendStart(h.connection);
