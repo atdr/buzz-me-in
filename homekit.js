@@ -558,8 +558,14 @@ function _stopSession(sessionID, hangUp) {
   if (s.ffOut) killFfmpeg(s.ffOut);
   if (s.sdpPath) removeReturnAudioSdp(s.sdpPath);
 
+  // Only the last session ending means the user is finished. HomeKit runs up
+  // to cameraStreamCount sessions at once, and moving between the room view's
+  // camera tile and the full camera view starts a second one, so a STOP here
+  // routinely arrives while another session is still streaming. Hanging up on
+  // it kills a live call: seen on 2026-09-12, where session ac5c8c21 stopping
+  // ended the call under session d332e46a three seconds into the stream.
   const activeCall = getActiveCall();
-  if (hangUp && activeCall) {
+  if (hangUp && activeCall && activeSessions.size === 0) {
     scheduleHangUp(activeCall.callSid, sessionID);
   }
 }
@@ -920,8 +926,12 @@ module.exports = {
   shutdown,
   // Exported for tests/homekit-hangup-grace.test.cjs. Reaching the deferred
   // hangup through the streaming delegate would mean standing up a full SRTP
-  // session, which tests nothing about the timer.
+  // session, which tests nothing about the timer. _stopSession and the session
+  // map go with them: driving only scheduleHangUp tests when the timer fires
+  // but not whether it should have been set, which is where the live bug was.
   scheduleHangUp,
   cancelPendingHangUp,
   deferPendingHangUp,
+  _stopSession,
+  activeSessions,
 };
