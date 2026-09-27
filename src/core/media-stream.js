@@ -13,7 +13,7 @@ const { PassThrough } = require('stream');
 const { parseTwilioWsEvent, parseTwilioMediaPayload } = require('./ws-events-schema');
 const { createRingbackMulawCycle, sendMulawAudio } = require('./mulaw-audio');
 
-/** @import { connection, Message } from 'websocket' */
+/** @import { WebSocket } from 'ws' */
 /** @import { WsEventParseOkSupported, StreamTokenVerificationResult, TokenVerificationError, WsEventParseError, MediaPayloadParseError } from './types' */
 
 /**
@@ -31,7 +31,7 @@ const { createRingbackMulawCycle, sendMulawAudio } = require('./mulaw-audio');
 
 class MediaStream {
   /**
-   * @param {connection} connection
+   * @param {WebSocket} connection
    * @param {MediaStreamDeps} deps
    */
   constructor(connection, deps) {
@@ -67,11 +67,12 @@ class MediaStream {
   }
 
   /**
-   * @param {Message} message
+   * @param {Buffer} data
+   * @param {boolean} isBinary
    */
-  processMessage(message) {
-    if (message.type !== 'utf8') return;
-    if (message.utf8Data.length > this.deps.maxUtf8Bytes) {
+  processMessage(data, isBinary) {
+    if (isBinary) return;
+    if (data.length > this.deps.maxUtf8Bytes) {
       this.logger.warn('Media websocket message too large', {
         event: 'media-ws-message-too-large',
         reason: 'max-message-bytes-exceeded',
@@ -82,7 +83,7 @@ class MediaStream {
 
     let rawData;
     try {
-      rawData = JSON.parse(message.utf8Data);
+      rawData = JSON.parse(data.toString('utf8'));
     } catch {
       this.logger.warn('Media websocket invalid JSON', {
         event: 'media-ws-invalid-json',
