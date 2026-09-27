@@ -36,6 +36,24 @@ E2E stages 4–10 dial a **real Twilio number attached to a real household** (St
 - Never script repeated automatic calls at the live number.
 - Anything verifiable locally (Stage 1 health checks, unit tests, `ffmpeg -codecs`) must be verified locally first.
 
+### The far end must not be the Home-app iPhone
+
+The person testing usually has one phone, and it is needed for the Home app. Do not answer the test call on a Mac or iPad that relays mobile calls through that same iPhone (Continuity): opening the live view takes the iPhone's audio session and the relayed call goes silent both ways, which looks exactly like a server bug (2026-09-27, iOS 27; see the playbook archaeology). Wi-Fi Calling on Other Devices would avoid the relay, but not every carrier offers it.
+
+Use a **Twilio self-test call** instead: Twilio calls the intercom number from the intercom number, and the calling side runs inline TwiML as a scripted, recorded visitor.
+
+```bash
+twilio api:core:calls:create --from <TWILIO_PHONE_NUMBER> --to <TWILIO_PHONE_NUMBER> \
+  --record --recording-channels dual \
+  --twiml '<Response><Pause length="10"/><Say loop="10">This is the caller. Testing one, two, three, four, five.</Say><Pause length="30"/></Response>'
+```
+
+- The inbound leg hits `/twiml` exactly as a real visitor's call does, so the whole server path is exercised. `from` is the Twilio number itself, so add it to `KNOWN_CALLERS` with a label such as `Self test` to exercise labelling too, and remove it afterwards.
+- Caller → iPhone is judged by ear against a known phrase. iPhone → caller, including the unlock tone, is in the dual-channel recording in the Twilio console.
+- Size the pauses to the test: leave the live view time to open before anything spoken matters, since the first ~3 s of each session are currently lost (#102).
+- The Twilio CLI is wrapped by a 1Password shell plugin and needs a real TTY, so the tester runs it in their own terminal.
+- `calls:create --to <mobile> --url https://<host>/twiml` is the opposite shape: Twilio calls the phone and the Pi serves the phone's leg. It is only valid when that phone is not the Home-app iPhone or relayed through it.
+
 ## Unit test patterns (the parts that bite)
 
 - **Run**: `npm run test` (sets `DOTENV_CONFIG_PATH=/dev/null` so your local `.env` cannot leak). Single file: `DOTENV_CONFIG_PATH=/dev/null node --test tests/state.test.cjs`.
@@ -53,7 +71,7 @@ Audit failures are no longer a routine cause of red PRs. The blocking audit run 
 
 ## Provenance and maintenance
 
-Written 2026-07-04 against commit `d377b02`. Re-verify:
+Written 2026-07-04 against commit `d377b02`; the far-end rule and self-test call added 2026-09-27. Re-verify:
 
 - Commands and pitfalls: read `docs/testing.md` (doc of record)
 - Test-runner env guard: `grep -n "DOTENV_CONFIG_PATH" package.json src/core/config.js docs/testing.md`
