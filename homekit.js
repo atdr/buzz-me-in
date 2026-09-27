@@ -299,6 +299,10 @@ function _startSession(sessionID, s, request, callback) {
   //   leaves the layout unset, so the decoder guesses it and logs "Guessed
   //   Channel Layout: mono" on every call. Our stderr handler is a warn, so
   //   that guess looked like a fault in the journal. Needs ffmpeg >= 5.1.
+  //   -probesize 32 / -analyzeduration 0 skip stream probing: format, rate
+  //   and layout are all declared, but by default ffmpeg still reads ~3 s of
+  //   stdin before it outputs anything, then sends that backlog to the
+  //   controller in one burst, and the caller's first words are lost (#102).
   //
   // Input 1  – synthetic black video (lavfi color source)
   //   Generates H.264 Baseline/3.1 frames at 15 fps.
@@ -317,6 +321,10 @@ function _startSession(sessionID, s, request, callback) {
     // ---- Input 0: raw mulaw from Twilio ----
     '-thread_queue_size',
     '512',
+    '-probesize',
+    '32',
+    '-analyzeduration',
+    '0',
     '-f',
     'mulaw',
     '-ar',
