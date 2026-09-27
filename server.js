@@ -400,6 +400,7 @@ function handleMediaUpgrade(request, socket, head) {
       mediaWsLogger.warn('Media websocket protocol error', {
         event: 'media-ws-error',
         reason: /** @type {NodeJS.ErrnoException} */ (err).code || 'ws-error',
+        error: err,
       });
     });
     mediaWsLogger.info('Media websocket connection accepted', {
