@@ -229,9 +229,9 @@ async function handleTwimlRequest(req, res) {
   const body = buildTwiml(callSid);
   // Who rang. Logged here rather than on twiml-request, which fires before the
   // body is read and before the signature is checked: an unverified From is
-  // whatever the sender typed. forwardedFrom is the number that diverted the
-  // call, which is the intercom panel's signature when the building's line
-  // forwards to us.
+  // whatever the sender typed. forwardedFrom is logged as Twilio reports it,
+  // but carriers fill it inconsistently: on EE it is simply the dialled number
+  // on every call, so it cannot tell a diverted call from a direct one.
   const caller = describeCaller(formData.From);
   twimlLogger.info('TwiML response generated', {
     event: 'twiml-response',
