@@ -37,6 +37,7 @@ npm run test
 - `tests/mulaw-audio.test.cjs` - mu-law encode/decode, DTMF and ringback generation, WAV rendering
 - `tests/log.test.cjs` - structured logger output, levels, and error normalization
 - `tests/twilio-ids.test.cjs` - Twilio identifier normalization
+- `tests/inbound-ffmpeg-args.test.cjs` - inbound ffmpeg arguments, including the two #102 guards (no stream probing on the mu-law input, Opus RTP relabelled to a 16 kHz clock)
 - `tests/return-audio-sdp.test.cjs` - return-audio SDP generation and teardown
 - `tests/homekit-shutdown.test.cjs` - the shutdown path unpublishes and never destroys (pairing-loss guard)
 - `tests/homekit-hangup-grace.test.cjs` - the call is held open after the live view closes, and the pending hangup is cancelled, deferred, superseded or skipped correctly (unlock-from-room-view guard)
