@@ -1,5 +1,24 @@
 # Changelog
 
+## [2.2.0](https://github.com/atdr/buzz-me-in/compare/v2.1.1...v2.2.0) (2026-09-27)
+
+
+### Features
+
+* **homekit:** hold the call open briefly after the live view closes ([#88](https://github.com/atdr/buzz-me-in/issues/88)) ([f25a46e](https://github.com/atdr/buzz-me-in/commit/f25a46e87e573cae492b7aa7b7d41c6afa6cadc9))
+* **server:** log who called, with optional labels for known numbers ([#96](https://github.com/atdr/buzz-me-in/issues/96)) ([6b2eac8](https://github.com/atdr/buzz-me-in/commit/6b2eac8da6e999692d9d1bd6e2aa596b9a5d56f2))
+* **server:** verify Twilio signature on the /media handshake ([#84](https://github.com/atdr/buzz-me-in/issues/84)) ([812a6cf](https://github.com/atdr/buzz-me-in/commit/812a6cff7fe6c08dca5422d4ce80038b89443a9d))
+
+
+### Bug Fixes
+
+* **core:** stop forwarding Twilio audio once the live view closes ([#95](https://github.com/atdr/buzz-me-in/issues/95)) ([11c1820](https://github.com/atdr/buzz-me-in/commit/11c182065af6e5cfab5948df789f1db5df15b7fb))
+* **deps:** bump dotenv from 17.4.2 to 18.0.1 ([#99](https://github.com/atdr/buzz-me-in/issues/99)) ([80926b9](https://github.com/atdr/buzz-me-in/commit/80926b938f0090a5647128b0b61a201a3410fd21))
+* **deps:** bump twilio from 6.1.0 to 6.1.1 ([#92](https://github.com/atdr/buzz-me-in/issues/92)) ([99d6a21](https://github.com/atdr/buzz-me-in/commit/99d6a2108ab49ef61869e246baa8db00e1d99680))
+* **deps:** bump zod from 4.5.4 to 4.6.5 ([#93](https://github.com/atdr/buzz-me-in/issues/93)) ([f510171](https://github.com/atdr/buzz-me-in/commit/f5101717d62ade5f07dd7e3ae7ed9c2f22d60592))
+* **homekit:** declare mono layout on the inbound audio input ([#87](https://github.com/atdr/buzz-me-in/issues/87)) ([f432af1](https://github.com/atdr/buzz-me-in/commit/f432af1fece8a7c1609617208cd9dc3fd5f76cfa))
+* **homekit:** only hang up when the last HomeKit session ends ([#89](https://github.com/atdr/buzz-me-in/issues/89)) ([9773526](https://github.com/atdr/buzz-me-in/commit/9773526a2293aee1384e07b9686752fd6b75cd9e))
+
 ## [2.1.1](https://github.com/atdr/buzz-me-in/compare/v2.1.0...v2.1.1) (2026-09-09)
 
 
