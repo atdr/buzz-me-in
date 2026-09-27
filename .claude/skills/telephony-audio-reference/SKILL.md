@@ -41,7 +41,20 @@ Dual-tone multi-frequency: each digit is two simultaneous sine tones. Table in `
 
 ## Ringback
 
-UK cadence, generated in `createRingbackMulawCycle`: 400 ms dual tone (400 Hz + 450 Hz) → 200 ms gap → 400 ms tone → 2000 ms tail. While the doorbell rings unanswered, `MediaStream.startRingback` sends one 160-byte (20 ms) frame every 20 ms; it stops when the HomeKit live view opens (`homekit-session-started`). `GET /ringtone` serves the same cycle as a PCM16 WAV for manual checks.
+### Answer supervision: why the caller can hear ringing on an answered call
+
+The ringing a caller hears is never produced by the called phone. It is a tone generated inside the network, started on the "far end is alerting" signal (ISUP Address Complete, SIP `180 Ringing`) and stopped on the "far end answered" signal (ISUP Answer Message, SIP `200 OK`), which is also the moment the two media paths are joined and billing starts. Everything in between is signalling, so any delay in propagating the answer (a slow relay, a webhook fetch, a gateway) leaves ringing audible after someone has accepted the call. SIP early media (`183 Session Progress`) lets the called side send its own audio before answering, which is how "please hold while we connect you" plays unbilled.
+
+Applied to this repo:
+
+- Twilio fetches `/twiml` **before** answering (which is why a `<Reject>` verb can exist), so while the Pi builds the TwiML the visitor still hears the carrier's own ringing.
+- Returning `<Connect><Stream>` makes Twilio answer. From then on the call is connected and billed, and **the ringback the visitor hears is synthetic**, sent by the Pi as media frames so that the handover from the carrier's ringing is inaudible while the HomeKit doorbell chimes. It is a deliberate disguise: to the visitor the call has not been answered yet.
+- Consequently the end of ringback is the only "someone picked up" cue the visitor gets, and they tend to start speaking immediately. It currently fires at `homekit-session-started`, about 3 s before the Pi can deliver audio to the iPhone, so those first words are lost (#102). Stopping ringback on ffIn's first output instead would line the cue up with readiness.
+- On a Mac answering a mobile call via Continuity, the Mac's own ringtone keeps playing after "accept" until the iPhone has answered and the LAN relay is up. That is Apple's UI covering the relay handshake, not network ringback.
+
+### Cadence and delivery
+
+UK cadence, generated in `createRingbackMulawCycle`: 400 ms dual tone (400 Hz + 450 Hz) → 200 ms gap → 400 ms tone → 2000 ms tail. From the moment the media stream starts (the call is already answered) until someone opens the live view, `MediaStream.startRingback` sends one 160-byte (20 ms) frame every 20 ms; it stops when the HomeKit live view opens (`homekit-session-started`). `GET /ringtone` serves the same cycle as a PCM16 WAV for manual checks.
 
 ## RTP / SRTP / SDP essentials
 
@@ -68,7 +81,7 @@ The mu-law bridge between Twilio and ffIn is a Node `PassThrough` stream (`highW
 
 ## Provenance and maintenance
 
-Written 2026-07-04 against commit `d377b02`. Re-verify:
+Written 2026-07-04 against commit `d377b02`; answer supervision section added 2026-09-27. Re-verify:
 
 - Event schema and limits: `grep -n "z.literal\|maxDecodedBytes" src/core/ws-events-schema.js`
 - DTMF/ringback constants: `grep -n "DEFAULT_DTMF\|RINGBACK_\|DTMF_FREQUENCIES" src/core/mulaw-audio.js`
