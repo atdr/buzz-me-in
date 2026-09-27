@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.2.1](https://github.com/atdr/buzz-me-in/compare/v2.2.0...v2.2.1) (2026-09-27)
+
+
+### Bug Fixes
+
+* **homekit:** stop the Pi → iPhone audio burst and dropouts ([#107](https://github.com/atdr/buzz-me-in/issues/107)) ([d40c11e](https://github.com/atdr/buzz-me-in/commit/d40c11eb807f35ecd5bbf9cf67b7b38a45a74a37))
+* **package:** drop ./ prefix from bin path ([#104](https://github.com/atdr/buzz-me-in/issues/104)) ([f1daf64](https://github.com/atdr/buzz-me-in/commit/f1daf64962c21d794991070cb04020a992ae5003))
+
 ## [2.2.0](https://github.com/atdr/buzz-me-in/compare/v2.1.1...v2.2.0) (2026-09-27)
 
 
