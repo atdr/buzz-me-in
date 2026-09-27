@@ -384,6 +384,14 @@ function _startSession(sessionID, s, request, callback) {
     // ffmpeg with --enable-libfdk-aac --enable-nonfree and change:
     //   '-c:a', 'libfdk_aac', '-profile:a', 'aac_eld',
     // and update streamingOptions.audio.codecs below to AAC_ELD.
+    //
+    // RTP clock: HomeKit clocks Opus RTP timestamps at the negotiated sample
+    // rate (16 kHz, 320 ticks per 20 ms packet), which is also what the iPhone
+    // sends on the return leg. ffmpeg's RTP muxer always uses RFC 7587's
+    // 48 kHz for Opus (960 ticks), so the controller saw audio arriving three
+    // times slower than its timestamps said, and dropped words (#102).
+    // libopus stamps packets in 1/16000; relabelling that time base as
+    // 1/48000 stops the muxer rescaling, so each packet advances by 320.
     '-map',
     '0:a',
     '-c:a',
@@ -398,6 +406,8 @@ function _startSession(sessionID, s, request, callback) {
     'voip',
     '-frame_duration',
     '20',
+    '-bsf:a',
+    'setts=time_base=1/48000',
     '-payload_type',
     String(audio.pt),
     '-ssrc',
