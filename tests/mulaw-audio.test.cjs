@@ -65,7 +65,7 @@ describe('mu-law audio helpers', () => {
     const activeCall = {
       streamSid: 'MZ123',
       wsConnection: {
-        sendUTF(message) {
+        send(message) {
           sent.push(JSON.parse(message));
         },
       },
@@ -84,7 +84,7 @@ describe('mu-law audio helpers', () => {
     const activeCall = {
       streamSid: 'MZ123',
       wsConnection: {
-        sendUTF(message) {
+        send(message) {
           sent.push(JSON.parse(message));
         },
       },

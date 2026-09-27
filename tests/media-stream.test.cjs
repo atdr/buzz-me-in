@@ -27,7 +27,7 @@ class FakeConnection extends EventEmitter {
     this.closeCalls = 0;
   }
 
-  sendUTF(message) {
+  send(message) {
     this.sent.push(JSON.parse(message));
   }
 
@@ -110,7 +110,7 @@ function createHarness({ reboundSessions = 0 } = {}) {
 }
 
 function send(connection, payload) {
-  connection.emit('message', { type: 'utf8', utf8Data: JSON.stringify(payload) });
+  connection.emit('message', Buffer.from(JSON.stringify(payload)), false);
 }
 
 function sendStart(connection, { callSid = VALID_CALL_SID, token = GOOD_TOKEN } = {}) {
@@ -273,11 +273,11 @@ describe('media stream protocol', () => {
 
   test('invalid JSON and oversized messages close the connection', () => {
     const h1 = createHarness();
-    h1.connection.emit('message', { type: 'utf8', utf8Data: 'not json' });
+    h1.connection.emit('message', Buffer.from('not json'), false);
     assert.ok(h1.connection.closeCalls >= 1);
 
     const h2 = createHarness();
-    h2.connection.emit('message', { type: 'utf8', utf8Data: 'x'.repeat(5000) });
+    h2.connection.emit('message', Buffer.from('x'.repeat(5000)), false);
     assert.ok(h2.connection.closeCalls >= 1);
   });
 

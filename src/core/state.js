@@ -4,7 +4,7 @@ const config = require('./config');
 const { createLogger } = require('./log');
 const logger = createLogger({ component: 'state' });
 
-/** @import { connection as WebSocketConnection } from 'websocket' */
+/** @import { WebSocket as WebSocketConnection } from 'ws' */
 /** @import { CallSession, CallStatus, StartCallResult, ClearCallResult, ClearedCallSession } from './types.js' */
 
 class CallSessionManager {
