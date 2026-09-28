@@ -1,3 +1,5 @@
+![buzz-me-in: answer your apartment intercom from Apple Home](https://raw.githubusercontent.com/atdr/buzz-me-in/main/docs/assets/banner.png)
+
 # buzz-me-in
 
 [![npm](https://img.shields.io/npm/v/buzz-me-in.svg?style=flat-square)](https://www.npmjs.com/package/buzz-me-in)
