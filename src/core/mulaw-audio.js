@@ -174,14 +174,14 @@ function createDualToneMulaw(lowFrequency, highFrequency, durationMs, amplitude)
 }
 
 /**
- * @param {{ streamSid: string, wsConnection: { sendUTF: (message: string) => void } }} activeCall
+ * @param {{ streamSid: string, wsConnection: { send: (message: string) => void } }} activeCall
  * @param {Buffer} payload
  */
 function sendMulawAudio(activeCall, payload) {
   if (!activeCall || !activeCall.streamSid || !activeCall.wsConnection) {
     throw new Error('Cannot send audio without an active media stream');
   }
-  activeCall.wsConnection.sendUTF(
+  activeCall.wsConnection.send(
     JSON.stringify({
       event: 'media',
       streamSid: activeCall.streamSid,
@@ -191,7 +191,7 @@ function sendMulawAudio(activeCall, payload) {
 }
 
 /**
- * @param {{ streamSid: string, wsConnection: { sendUTF: (message: string) => void } }} activeCall
+ * @param {{ streamSid: string, wsConnection: { send: (message: string) => void } }} activeCall
  * @param {string} digits
  * @param {{ chunkMs?: number, toneMs?: number, trailingSilenceMs?: number }} [options]
  */

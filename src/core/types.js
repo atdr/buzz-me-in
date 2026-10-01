@@ -118,7 +118,7 @@
  * @typedef {{
  *   callSid: string,
  *   streamSid: string,
- *   wsConnection: import('websocket').connection,
+ *   wsConnection: import('ws').WebSocket,
  *   createdAtMs: number,
  *   lastEventAtMs: number,
  *   lastEvent: string

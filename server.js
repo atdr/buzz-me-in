@@ -29,7 +29,7 @@ if (require.main === module) {
 
 const http = require('http');
 const twilio = require('twilio');
-const WebSocketServer = require('websocket').server;
+const { WebSocketServer } = require('ws');
 
 const config = require('./src/core/config');
 const state = require('./src/core/state');
@@ -45,7 +45,7 @@ const homekit = require('./homekit');
 const { createLogger } = require('./src/core/log');
 const { safeEqualString } = require('./src/core/safe-equal');
 const { MediaStream } = require('./src/core/media-stream');
-/** @import { request as WebSocketRequest } from 'websocket' */
+/** @import { Duplex } from 'stream' */
 /** @import { HandshakeVerificationError } from './src/core/types' */
 
 const HTTP_SERVER_PORT = config.port;
@@ -82,17 +82,19 @@ const RINGTONE_WAV = createRingbackWav();
 
 const wsserver = http.createServer(handleRequest);
 
-// Enforce message bounds in the websocket library itself so oversized
-// frames are rejected before assembly, instead of relying only on the
-// per-message check in MediaStream (library defaults allow 1 MiB).
+// Enforce message bounds in the ws library itself so oversized frames are
+// rejected before assembly, instead of relying only on the per-message check
+// in MediaStream (the library default allows 100 MiB).
 const WS_LIBRARY_MAX_BYTES = MAX_WS_UTF8_BYTES * 4;
 const MAX_CONCURRENT_WS_CONNECTIONS = config.wsMaxConnections;
 
+// noServer: the upgrade handler below runs the handshake checks and only then
+// hands the socket to ws. Sockets are tracked in activeWsConnections instead of
+// by the library.
 const mediaws = new WebSocketServer({
-  httpServer: wsserver,
-  autoAcceptConnections: false,
-  maxReceivedFrameSize: WS_LIBRARY_MAX_BYTES,
-  maxReceivedMessageSize: WS_LIBRARY_MAX_BYTES,
+  noServer: true,
+  clientTracking: false,
+  maxPayload: WS_LIBRARY_MAX_BYTES,
 });
 
 state.setOnSessionStale((session) => {
@@ -294,28 +296,64 @@ GET_ROUTES.set('/readyz', function (_req, res) {
 // WebSocket media stream
 // ---------------------------------------------------------------------------
 
-mediaws.on('request', function (request) {
-  /** @type {WebSocketRequest} */
-  const wsRequest = request;
+/**
+ * Refuse a WebSocket upgrade with a plain HTTP response, before any WebSocket
+ * handshake is written, then drop the socket.
+ *
+ * @param {Duplex} socket
+ * @param {number} status
+ * @param {string} reason
+ * @returns {void}
+ */
+function rejectUpgrade(socket, status, reason) {
+  socket.end(
+    `HTTP/1.1 ${status} ${http.STATUS_CODES[status]}\r\n` +
+      'Connection: close\r\n' +
+      'Content-Type: text/plain\r\n' +
+      `Content-Length: ${Buffer.byteLength(reason)}\r\n` +
+      '\r\n' +
+      reason
+  );
+}
+
+/**
+ * Handshake checks for the `/media` WebSocket, run before ws takes the socket.
+ * Exported so tests can mount it on their own HTTP server.
+ *
+ * @param {import('http').IncomingMessage} request
+ * @param {Duplex} socket
+ * @param {Buffer} head
+ * @returns {void}
+ */
+function handleMediaUpgrade(request, socket, head) {
+  // A client that resets mid-handshake would otherwise raise an unhandled
+  // 'error' and take the process down via the uncaughtException handler.
+  socket.on('error', () => socket.destroy());
   if (shuttingDown) {
-    wsRequest.reject(503, 'Server shutting down');
+    rejectUpgrade(socket, 503, 'Server shutting down');
     return;
   }
-  const path = wsRequest.resourceURL && wsRequest.resourceURL.pathname;
+  // Node accepts an absolute-form target such as `http://[`, which URL cannot
+  // parse. Thrown here, it would exit the process via uncaughtException.
+  let path;
+  try {
+    path = new URL(request.url || '/', 'http://localhost').pathname;
+  } catch {
+    rejectUpgrade(socket, 400, 'Bad request');
+    return;
+  }
   if (path !== STREAM_PATH) {
-    wsRequest.reject(404, 'Not found');
+    rejectUpgrade(socket, 404, 'Not found');
     return;
   }
   // Twilio signs the Media Streams handshake, so an unauthenticated socket can
-  // be refused here rather than after accept(). Without this the server accepts
-  // the connection and allocates a MediaStream before any auth runs, because
-  // the stream token only arrives later in the `start` frame. Defence in depth:
-  // the one-time token below remains the authority, since this signature is an
-  // HMAC over a constant URL and so never varies between calls.
+  // be refused here rather than after the upgrade. Without this the server
+  // accepts the connection and allocates a MediaStream before any auth runs,
+  // because the stream token only arrives later in the `start` frame. Defence
+  // in depth: the one-time token below remains the authority, since this
+  // signature is an HMAC over a constant URL and so never varies between calls.
   if (MEDIA_SIGNATURE_MODE !== 'off') {
-    const handshake = verifyStreamHandshakeSignature(
-      wsRequest.httpRequest.headers['x-twilio-signature']
-    );
+    const handshake = verifyStreamHandshakeSignature(request.headers['x-twilio-signature']);
     if (!handshake.ok) {
       // strict:false disables discriminated-union narrowing; cast as elsewhere.
       const handshakeError = /** @type {HandshakeVerificationError} */ (handshake);
@@ -325,7 +363,7 @@ mediaws.on('request', function (request) {
         enforced: MEDIA_SIGNATURE_MODE === 'enforce',
       });
       if (MEDIA_SIGNATURE_MODE === 'enforce') {
-        wsRequest.reject(403, 'Forbidden');
+        rejectUpgrade(socket, 403, 'Forbidden');
         return;
       }
     } else {
@@ -348,18 +386,31 @@ mediaws.on('request', function (request) {
       event: 'media-ws-rejected',
       reason: 'too-many-connections',
     });
-    wsRequest.reject(503, 'Too many connections');
+    rejectUpgrade(socket, 503, 'Too many connections');
     return;
   }
 
-  const connection = wsRequest.accept(null, wsRequest.origin);
-  activeWsConnections.add(connection);
-  connection.on('close', () => activeWsConnections.delete(connection));
-  mediaWsLogger.info('Media websocket connection accepted', {
-    event: 'media-ws-accepted',
+  mediaws.handleUpgrade(request, socket, head, function (connection) {
+    activeWsConnections.add(connection);
+    connection.on('close', () => activeWsConnections.delete(connection));
+    // ws emits 'error' for protocol violations and frames over maxPayload, then
+    // closes the socket itself; 'close' still fires, so MediaStream tears down.
+    // Unhandled, the error would exit the process.
+    connection.on('error', (err) => {
+      mediaWsLogger.warn('Media websocket protocol error', {
+        event: 'media-ws-error',
+        reason: /** @type {NodeJS.ErrnoException} */ (err).code || 'ws-error',
+        error: err,
+      });
+    });
+    mediaWsLogger.info('Media websocket connection accepted', {
+      event: 'media-ws-accepted',
+    });
+    new MediaStream(connection, mediaStreamDeps);
   });
-  new MediaStream(connection, mediaStreamDeps);
-});
+}
+
+wsserver.on('upgrade', handleMediaUpgrade);
 
 /** @type {import('./src/core/media-stream').MediaStreamDeps} */
 const mediaStreamDeps = {
@@ -543,6 +594,7 @@ module.exports = {
   beginShutdown,
   buildTwiml,
   describeCaller,
+  handleMediaUpgrade,
   handleRequest,
   isAuthorizedForStatus,
   isValidTwilioRequest,
