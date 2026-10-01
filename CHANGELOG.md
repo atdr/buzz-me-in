@@ -1,5 +1,16 @@
 # Changelog
 
+## [2.2.2](https://github.com/atdr/buzz-me-in/compare/v2.2.1...v2.2.2) (2026-10-01)
+
+
+### Bug Fixes
+
+* **deps:** bump axios to 1.20.0 to clear the audit gate ([#115](https://github.com/atdr/buzz-me-in/issues/115)) ([d1afcfc](https://github.com/atdr/buzz-me-in/commit/d1afcfc6ae96b84d27c9d83e74f489e3919b5671))
+* **deps:** bump dotenv from 18.0.1 to 18.0.4 ([#113](https://github.com/atdr/buzz-me-in/issues/113)) ([0929c88](https://github.com/atdr/buzz-me-in/commit/0929c88b9ad3ed88e6457b55b28b2730c16caf82))
+* **deps:** bump twilio from 6.1.1 to 6.1.2 ([#114](https://github.com/atdr/buzz-me-in/issues/114)) ([67b04f5](https://github.com/atdr/buzz-me-in/commit/67b04f51fdcaab6a797224cc1785dfcdb705ef42))
+* **deps:** replace websocket with ws, dropping the deprecated yaeti install warning ([da67887](https://github.com/atdr/buzz-me-in/commit/da678870541fd22151fff356aec2d36f184e0ed5))
+* **server:** reject an unparseable WebSocket upgrade target with 400 instead of exiting ([da67887](https://github.com/atdr/buzz-me-in/commit/da678870541fd22151fff356aec2d36f184e0ed5))
+
 ## [2.2.1](https://github.com/atdr/buzz-me-in/compare/v2.2.0...v2.2.1) (2026-09-27)
 
 
