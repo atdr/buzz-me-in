@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.2.4](https://github.com/atdr/buzz-me-in/compare/v2.2.3...v2.2.4) (2026-10-22)
+
+
+### Bug Fixes
+
+* **deps:** bump dotenv from 18.0.7 to 18.0.8 ([#126](https://github.com/atdr/buzz-me-in/issues/126)) ([69626ae](https://github.com/atdr/buzz-me-in/commit/69626aeced173d415b38efa7d226bf2d0422303a))
+* **deps:** bump follow-redirects from 1.16.0 to 1.16.1 ([#123](https://github.com/atdr/buzz-me-in/issues/123)) ([914dfa0](https://github.com/atdr/buzz-me-in/commit/914dfa0bcfcee909b4166f68c6b080bad1afc70c))
+* **deps:** bump twilio from 6.1.2 to 6.2.0 ([#127](https://github.com/atdr/buzz-me-in/issues/127)) ([4dc4407](https://github.com/atdr/buzz-me-in/commit/4dc440734a5d06bcd1f4ea9a41be987c285a9d1c))
+* **deps:** bump zod from 4.6.6 to 4.6.7 ([#128](https://github.com/atdr/buzz-me-in/issues/128)) ([e922384](https://github.com/atdr/buzz-me-in/commit/e922384b7ad4095a158fc759ae421ef67e210ac3))
+
 ## [2.2.3](https://github.com/atdr/buzz-me-in/compare/v2.2.2...v2.2.3) (2026-10-15)
 
 
