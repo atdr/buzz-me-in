@@ -1,5 +1,16 @@
 # Changelog
 
+## [3.0.0](https://github.com/atdr/buzz-me-in/compare/v2.2.4...v3.0.0) (2026-10-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* engines.node is now >=22. Installs on Node 20 are no longer supported.
+
+### Features
+
+* require Node 22 or later ([#131](https://github.com/atdr/buzz-me-in/issues/131)) ([df67ba7](https://github.com/atdr/buzz-me-in/commit/df67ba7aa418c88d3f87e57474d3cafbd0500f4e))
+
 ## [2.2.4](https://github.com/atdr/buzz-me-in/compare/v2.2.3...v2.2.4) (2026-10-22)
 
 
