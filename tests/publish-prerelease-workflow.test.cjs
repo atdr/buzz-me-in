@@ -125,5 +125,6 @@ test('the tagging job is separate so the publish token stays read-only', () => {
 });
 
 test('npm is new enough for trusted publishing', () => {
-  assert.match(jobs.get('publish-prerelease'), /node-version: 24/);
+  // lts/* is the newest LTS line, 24 or later, so its npm is new enough.
+  assert.match(jobs.get('publish-prerelease'), /node-version: (lts\/\*|2[4-9]|[3-9]\d)/);
 });
