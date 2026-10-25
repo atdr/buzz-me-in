@@ -36,3 +36,10 @@ updates:
       interval: weekly
     commit-message:
       prefix: ci
+    # Dependabot counts each reusable workflow file as its own dependency, so
+    # one boilerplate release would open a PR per pinned file and leave the
+    # pins on mixed versions between merges. Grouped, they move together.
+    groups:
+      github-boilerplate:
+        patterns:
+          - 'atdr/github-boilerplate*'
