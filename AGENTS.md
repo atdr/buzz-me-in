@@ -133,8 +133,8 @@ Three things in it are load-bearing and worth not "tidying away":
   `.env` cannot leak into the measured run.
 
 Coverage is kept out of the five gates because `--test-coverage-include` needs
-Node 22.5 and this package still supports a `>=20` floor, where node exits on
-the unknown flag. `tests/coverage.test.cjs` guards all of the above.
+Node 22.5 and the `engines` floor is `>=22`, so a 22.0 to 22.4 install would
+exit on the unknown flag. `tests/coverage.test.cjs` guards all of the above.
 
 ### Entry points are inert on require
 

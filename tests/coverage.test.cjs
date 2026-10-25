@@ -114,9 +114,9 @@ describe('coverage script', () => {
     assert.match(script, new RegExp(`--test-reporter-destination=${LCOV.replace('.', '\\.')}`));
   });
 
-  test('stays out of the gates a Node 20 developer runs', () => {
+  test('stays out of the gates a Node 22.0 developer runs', () => {
     // --test-coverage-include needs Node >= 22.5, below which node exits on the unknown
-    // flag. package.json still declares a >=20 engines floor, so no gate may need it.
+    // flag. package.json declares a >=22 engines floor, so no gate may need it.
     for (const gate of ['test', 'lint', 'format:check', 'check', 'typecheck']) {
       assert.doesNotMatch(
         pkg.scripts[gate] ?? '',

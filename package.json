@@ -50,7 +50,7 @@
     "url": "https://github.com/atdr/buzz-me-in/issues"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "dependencies": {
     "dotenv": "^18.0.1",
