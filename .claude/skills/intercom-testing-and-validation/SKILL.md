@@ -109,16 +109,16 @@ twilio api:core:calls:create --from <TWILIO_PHONE_NUMBER> --to <TWILIO_PHONE_NUM
 
 ## CI reality
 
-CI (`.github/workflows/ci.yml`) runs the five gates on Node 20, 22, and 24, plus
-a separate `Dependency audit` job. A change that passes locally but fails CI:
-first suspect Node version differences, then a dirty working tree
-(`git status`).
+CI (`.github/workflows/ci.yml`, from atdr/github-boilerplate) runs the five
+gates on every Node line in LTS, plus a separate dependency audit job. A change
+that passes locally but fails CI: first suspect Node version differences, then a
+dirty working tree (`git status`).
 
 Audit failures are no longer a routine cause of red PRs. The blocking audit run
 carries `--omit=dev`, so it only fires on advisories in the deployed dependency
 tree — treat one as genuine production exposure, not background noise.
-Whole-tree advisories (linters, commit tooling) appear as a `continue-on-error`
-warning on the same job and are fixed by Dependabot security updates, not by
+Whole-tree advisories (linters, commit tooling) appear as a red annotation on
+the same, still green, job and are fixed by Dependabot security updates, not by
 hand. See the archaeology in `intercom-debugging-playbook` for why the gate was
 scoped this way.
 

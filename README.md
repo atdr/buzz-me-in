@@ -106,7 +106,7 @@ ______________________________________________________________________
 - Raspberry Pi 4 (2 GB RAM recommended) running Raspberry Pi OS (64-bit)
 - Node.js >= 20
   - Runtime is tested on Node 20+.
-  - Repo tooling/CI currently runs on Node 20, 22, and 24.
+  - CI runs on every Node line currently in LTS.
 - ffmpeg >= 5.1 with libx264 and libopus: `sudo apt install ffmpeg`
   - The 5.1 floor is the `-ch_layout` option used on the inbound audio pipeline.
     Debian 12 (bookworm) ships 5.1 and Raspberry Pi OS based on Debian 13 ships

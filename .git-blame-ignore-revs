@@ -1,0 +1,7 @@
+# Commits that only reformat, skipped by `git blame` so it points at the
+# change that wrote a line, not the one that rewrapped it. GitHub's blame view
+# reads this file; locally run:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# docs: wrap Markdown at 80 columns with mdformat (#129)
+0fc928b0e0554c9217d94764d2b01eccf507791e

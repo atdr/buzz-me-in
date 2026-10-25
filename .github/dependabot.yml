@@ -6,37 +6,40 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     # `prefix` covers production dependencies, `prefix-development` the rest.
-    # Production bumps ship to the Pi, so they land as `fix` and release-please
-    # cuts a patch release with a changelog line — matching how production
-    # advisories were fixed by hand (`35d0458`, `071e55a`). Dev-tooling bumps
-    # stay `chore` and release-silent.
+    # A production bump changes what users install, so it lands as `fix` and
+    # release-please cuts a patch release with a changelog line. Dev tooling
+    # bumps stay `chore` and release-silent.
+    #
+    # A package with no runtime dependencies should set `prefix: chore(deps)`
+    # too: Dependabot cannot always tell a transitive dependency belongs to the
+    # dev tree, falls back to `prefix`, and would cut a release for a lockfile
+    # change nobody installs.
     commit-message:
       prefix: fix(deps)
       prefix-development: chore(deps)
     groups:
+      # `applies-to` defaults to version-updates. Production updates and every
+      # security update stay ungrouped, so each arrives as its own reviewable
+      # PR: a security group once filtered a high advisory out of its own job
+      # and still reported success.
       dev-dependencies:
         dependency-type: development
         update-types:
           - minor
           - patch
-      # Security updates are enabled in repo settings, not here. This group
-      # covers development advisories ONLY — they batch into one
-      # release-silent `chore` PR, mirroring their advisory-only status in
-      # the CI audit. Production advisories are deliberately left ungrouped:
-      # they land as individual `fix` PRs that block CI and cut a release.
-      # `applies-to` defaults to version-updates, which is why the group
-      # above needs no such key.
-      dev-security-updates:
-        applies-to: security-updates
-        dependency-type: development
-        patterns:
-          - '*'
-
-  # Moving major tags (@v5) absorb minor/patch action updates automatically
-  # but never cross majors; this surfaces new major versions as PRs.
+  # Major-tag pins (@v7) absorb minor and patch releases on their own but never
+  # cross a major; this surfaces new majors as PRs. It also bumps the
+  # atdr/github-boilerplate reusable workflows, which are pinned to exact tags.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
     commit-message:
       prefix: ci
+    # Dependabot counts each reusable workflow file as its own dependency, so
+    # one boilerplate release would open a PR per pinned file and leave the
+    # pins on mixed versions between merges. Grouped, they move together.
+    groups:
+      github-boilerplate:
+        patterns:
+          - 'atdr/github-boilerplate*'

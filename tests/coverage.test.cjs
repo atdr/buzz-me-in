@@ -199,45 +199,29 @@ describe('entry points stay inert when required', () => {
 });
 
 describe('CI coverage job', () => {
+  // The job itself lives in atdr/github-boilerplate's node-ci.yml, which runs
+  // `npm run coverage` on the newest LTS Node, uploads lcov.info, and keeps the
+  // upload advisory. What this repo controls is that ci.yml calls it with
+  // coverage on and the token passed through.
   const job = () => {
-    const block = jobs.get('coverage');
-    assert.ok(block, 'no coverage job in ci.yml');
+    const block = jobs.get('node');
+    assert.ok(block, 'no node job in ci.yml');
     return block;
   };
 
-  test('runs the same command as a developer would', () => {
+  test('runs the boilerplate CI, which runs npm run coverage', () => {
     assert.match(
       job(),
-      /run: npm run coverage/,
-      'CI must call the npm script, so CI and local cannot drift apart'
+      /uses: atdr\/github-boilerplate\/\.github\/workflows\/node-ci\.yml@v\d+\.\d+\.\d+/
     );
   });
 
-  test('runs on a Node new enough for the coverage flags', () => {
-    const version = job().match(/node-version: (\d+)/);
-    assert.ok(version, 'the coverage job must pin a node-version');
-    assert.ok(
-      Number(version[1]) >= 22,
-      '--test-coverage-include needs Node >= 22.5; the repo floor of 20 exits on the unknown flag'
-    );
+  test('leaves coverage switched on', () => {
+    assert.doesNotMatch(job(), /coverage: false/);
   });
 
-  test('uploads the file the script writes', () => {
-    assert.match(job(), new RegExp(`files: \\./${LCOV.replace('.', '\\.')}`));
-    assert.match(job(), /uses: codecov\/codecov-action@v\d+/);
-  });
-
-  test('lets the upload fail without failing the job', () => {
-    // An outage at Codecov, or a missing CODECOV_TOKEN, says nothing about the change
-    // under review. The coverage run itself stays blocking: a job that can never fail
-    // is a check that proves nothing.
-    const upload = job().slice(job().indexOf('codecov/codecov-action'));
-    assert.match(upload, /fail_ci_if_error: false/);
-    assert.doesNotMatch(
-      job(),
-      /^ {4}continue-on-error: true/m,
-      'continue-on-error belongs on the upload step, not the job'
-    );
+  test('passes the Codecov token through', () => {
+    assert.match(job(), /CODECOV_TOKEN: \$\{\{ secrets\.CODECOV_TOKEN \}\}/);
   });
 });
 

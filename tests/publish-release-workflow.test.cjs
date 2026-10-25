@@ -85,7 +85,8 @@ test('a prerelease reaching the release path is tagged rather than made latest',
 
 test('npm is new enough for trusted publishing', () => {
   // Trusted publishing needs npm >= 11.5.1, first bundled with Node 24.5.
-  assert.match(jobs.get('publish'), /node-version: 24/);
+  // lts/* is the newest LTS line, 24 or later, so its npm is new enough.
+  assert.match(jobs.get('publish'), /node-version: (lts\/\*|2[4-9]|[3-9]\d)/);
 });
 
 test('top-level permissions are empty so each job scopes its own', () => {
