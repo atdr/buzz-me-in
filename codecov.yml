@@ -1,7 +1,6 @@
-# Codecov reports; it does not gate. Without `informational`, Codecov adds two
-# status checks it owns to every pull request, and a check this repo does not
-# control is exactly the kind that can look green while never having run.
-# CI is the source of truth for whether a change may merge.
+# Coverage reports; it does not gate. The test run that produces the report is
+# what blocks a merge, and a percentage moving says nothing about whether the
+# change under review is right.
 coverage:
   status:
     project:
@@ -10,3 +9,6 @@ coverage:
     patch:
       default:
         informational: true
+comment:
+  layout: 'condensed_header, diff, files'
+  require_changes: true
