@@ -13,8 +13,11 @@ on:
 
 permissions: {}
 
+# Keyed by version: GitHub keeps one pending run per group and drops the
+# older for a newer one, even with cancel-in-progress false, so a shared group
+# would silently discard a second version dispatched while one is queued.
 concurrency:
-  group: ${{ github.workflow }}
+  group: ${{ github.workflow }}-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
