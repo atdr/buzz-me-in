@@ -104,8 +104,8 @@ ______________________________________________________________________
 ### Raspberry Pi
 
 - Raspberry Pi 4 (2 GB RAM recommended) running Raspberry Pi OS (64-bit)
-- Node.js >= 20
-  - Runtime is tested on Node 20+.
+- Node.js >= 22
+  - Runtime is tested on every Node line currently in LTS.
   - CI runs on every Node line currently in LTS.
 - ffmpeg >= 5.1 with libx264 and libopus: `sudo apt install ffmpeg`
   - The 5.1 floor is the `-ch_layout` option used on the inbound audio pipeline.
