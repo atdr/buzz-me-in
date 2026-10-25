@@ -1,131 +1,46 @@
-name: CI
+name: ci
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
 
 permissions:
   contents: read
 
-# Cancel superseded runs when a PR branch is force-pushed or updated.
+# Superseded runs are cancelled on pull requests only. On main every commit
+# keeps its own result, so a red one points at the commit that broke it.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  commitlint:
-    name: Commit messages (commitlint)
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
+  node:
+    uses: atdr/github-boilerplate/.github/workflows/node-ci.yml@v0.1.0
+    with:
+      # Each must exist in package.json; a missing one fails the job.
+      scripts: lint format:check check typecheck test
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
-      - name: Lint commit messages
-        uses: wagoid/commitlint-github-action@v6
-
-  quality:
-    name: Quality gates (Node ${{ matrix.node-version }})
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        node-version: [20, 22, 24]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Check formatting
-        run: npm run format:check
-
-      - name: Syntax check
-        run: npm run check
-
-      - name: Test
-        run: npm run test
-
-      - name: Typecheck
-        run: npm run typecheck
-
-  # Reporting, not a gate: the Node matrix above is what proves the suite passes.
-  # This job re-runs it under V8 instrumentation only to produce lcov.info. Scope and
-  # preload live in the `coverage` npm script rather than here, so a developer running
-  # it locally measures what CI measures; tests/coverage.test.cjs guards both.
-  coverage:
-    name: Coverage report
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          # --test-coverage-include needs Node >= 22.5; 22 resolves well above it.
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Collect coverage
-        run: npm run coverage
-
-      # Advisory only, like the dev-tree audit below. A Codecov outage or a missing
-      # token says nothing about the change under review, but the coverage run itself
-      # stays blocking, because a job that can never fail is a check that proves nothing.
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v7
-        continue-on-error: true
-        with:
-          files: ./lcov.info
-          token: ${{ secrets.CODECOV_TOKEN }}
-          fail_ci_if_error: false
-
-  # Separate from the quality gates: an audit result reflects the advisory
-  # database at a point in time, not the diff under review. Kept out of the
-  # matrix (the advisories are Node-independent) and out of the quality job,
-  # where it used to run first and mask lint/test/typecheck on every failure.
-  audit:
-    name: Dependency audit
+  # The one check branch protection requires from this workflow. The Node
+  # matrix follows LTS, so requiring its jobs by name would break the ruleset
+  # every time a line enters or leaves LTS.
+  gate:
+    name: ci gate
+    # Not always(): a run superseded by a newer one is cancelled, and its gate
+    # would report a failure on the same commit the newer run is checking.
+    if: ${{ !cancelled() }}
+    needs: [node]
+    timeout-minutes: 5
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Setup Node
-        uses: actions/setup-node@v7
-        with:
-          node-version: 22
-          cache: npm
-
-      # Blocking: these are the only dependencies that reach the Pi.
-      - name: Audit production dependencies
-        run: npm audit --audit-level=high --omit=dev --package-lock-only
-
-      # Advisory only: linters and commit tooling never ship, so a DoS in one
-      # should not block unrelated PRs. Dependabot alerts remain the signal of
-      # record for the dev tree; this step just surfaces them during review.
-      - name: Audit all dependencies (advisory only)
-        run: npm audit --audit-level=high --package-lock-only
-        continue-on-error: true
+      - name: Require every job to have passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          for result in $RESULTS; do
+            case "$result" in
+              failure|cancelled) echo "::error::a required job finished as $result"; exit 1 ;;
+            esac
+          done

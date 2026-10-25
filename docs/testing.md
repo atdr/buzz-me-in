@@ -106,22 +106,22 @@ execution order and should always reset state or load fresh module instances.
 ## CI notes
 
 CI runs all five gates (lint, format check, syntax check, typecheck, tests) on
-Node 20, 22, and 24. Pull requests additionally run commitlint over the branch
-commits and a conventional PR title check.
+every Node line currently in LTS, using atdr/github-boilerplate's `node-ci.yml`.
+Pull requests additionally run commitlint over the branch commits and a
+conventional PR title check (`pull-request.yml`).
 
 A separate `Dependency audit` job runs `npm audit --audit-level=high` twice. The
 blocking run adds `--omit=dev`, so only advisories reaching the deployed
-dependency tree fail CI; the second run covers the whole tree and is
-`continue-on-error`, surfacing build-tool advisories as a warning without
-blocking unrelated PRs. It is deliberately outside the quality-gate job — an
-audit result reflects the advisory database at a point in time rather than the
-diff under review, and while it ran first inside that job any advisory masked
-lint, tests, and typecheck. Dev-tree advisories are fixed by Dependabot security
-updates rather than by hand; a red audit check now means genuine production
-exposure.
+dependency tree fail CI; the second run covers the whole tree and reports a red
+annotation on a green job, surfacing build-tool advisories without blocking
+unrelated PRs. It is deliberately outside the quality-gate job — an audit result
+reflects the advisory database at a point in time rather than the diff under
+review, and while it ran first inside that job any advisory masked lint, tests,
+and typecheck. Dev-tree advisories are fixed by Dependabot security updates
+rather than by hand; a red audit check now means genuine production exposure.
 
-A `Coverage report` job re-runs the suite under V8 instrumentation on Node 22
-and uploads `lcov.info` to Codecov, which supplies the README badge, per-PR
+A `coverage` job re-runs the suite under V8 instrumentation on the newest LTS
+Node and uploads `lcov.info` to Codecov, which supplies the README badge, per-PR
 comments, and history. It is reporting, not a sixth gate: the Node matrix is
 what proves the suite passes. Codecov's own status checks are set
 `informational` in `codecov.yml` so they can never block a merge, and the upload

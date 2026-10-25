@@ -20,14 +20,14 @@ commit messages, e.g. `fix/runtime-robustness`, `docs/refresh-claude-md`.
 
 **Commits** follow [Conventional Commits](https://www.conventionalcommits.org/):
 `<type>(<optional scope>): <imperative summary>`. Allowed types are `feat`,
-`fix`, `refactor`, `test`, `docs`, `chore`, and `ci`. Scope is typically the
-module touched (`server`, `homekit`, `config`, `core`, `deps`). Keep each commit
-to one logical change so it can be reviewed and reverted independently. Commit
-messages are linted in CI (commitlint with `@commitlint/config-conventional`)
-and locally by a husky `commit-msg` hook, which `npm install` sets up
-automatically. A `pre-commit` hook runs lint-staged (ESLint + Prettier on staged
-files only); the five full quality gates stay in CI and remain the documented
-pre-PR step.
+`fix`, `perf`, `refactor`, `test`, `docs`, `chore`, and `ci`. Scope is typically
+the module touched (`server`, `homekit`, `config`, `core`, `deps`). Keep each
+commit to one logical change so it can be reviewed and reverted independently.
+Commit messages are linted in CI (`pull-request.yml`, from
+atdr/github-boilerplate) and locally by a husky `commit-msg` hook, which
+`npm install` sets up automatically. A `pre-commit` hook runs lint-staged
+(ESLint + Prettier on staged files only); the five full quality gates stay in CI
+and remain the documented pre-PR step.
 
 **Pull requests** target `main`, merge in dependency order, and must pass all
 five quality gates (below) locally before being opened. PR titles use the same
@@ -83,12 +83,29 @@ npm run check        # node --check on runtime files
 npm run test         # node --test
 ```
 
-`npm run format` applies Prettier fixes in place.
+`npm run format` applies Prettier fixes in place. Markdown is formatted by
+mdformat instead (`.mdformat.toml`), which Prettier skips.
+
+## CI
+
+CI comes from
+[atdr/github-boilerplate](https://github.com/atdr/github-boilerplate), pinned by
+tag, which Dependabot bumps:
+
+- `ci.yml` runs the five gates on every Node line currently in LTS, plus the
+  coverage report and the dependency audit.
+- `pull-request.yml` checks the PR title and every commit against the commit
+  types above.
+- `checks.yml` lints Markdown and checks the repo against the boilerplate's
+  conventions.
+
+Each ends in one gate job (`ci gate`, `pull-request gate`, `checks gate`), and
+branch protection requires exactly those three.
 
 ## Coverage
 
-CI also runs a **Coverage report** job, which like the dependency audit is not
-one of the five gates. It re-runs the suite under V8 instrumentation to produce
+CI also runs a **coverage** job, which like the dependency audit is not one of
+the five gates. It re-runs the suite under V8 instrumentation to produce
 `lcov.info` and uploads it to Codecov, which supplies the README badge and
 per-PR comments. The Node matrix is what proves the suite passes; coverage only
 reports on it. Codecov's own status checks are `informational` in `codecov.yml`

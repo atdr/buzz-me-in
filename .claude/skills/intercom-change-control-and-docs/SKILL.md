@@ -16,14 +16,14 @@ AGENTS.md wins — fix this skill.
 
 ## Non-negotiables and why
 
-| Rule                                                                       | Rationale                                                                                                                                                                                                                                                                                                                                                                              |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Never commit directly to `main`                                            | Releases are cut from `main` by release-please; every change must arrive reviewed via PR.                                                                                                                                                                                                                                                                                              |
-| Conventional commits, allowed types `feat fix refactor test docs chore ci` | release-please derives version bumps and the changelog from commit types (`feat` → minor, `fix` → patch). Format is enforced by commitlint (CI + husky `commit-msg` hook); the seven-type restriction is AGENTS.md doctrine, enforced on PR titles by the `pr-title` workflow (commitlint's `config-conventional` alone would also accept e.g. `perf`, `style` — don't use them here). |
-| PR titles use the same conventional format                                 | On squash-merge the title becomes the commit on `main` that release-please reads. Enforced by the `pr-title` workflow.                                                                                                                                                                                                                                                                 |
-| One logical change per commit                                              | So it can be reviewed and reverted independently — the 2026-05-03 session relied on clean reverts (`c6f91a1`, `c98ba40`).                                                                                                                                                                                                                                                              |
-| CommonJS only; tests are `.cjs`; JSDoc types; structured logger only       | AGENTS.md rules; the typecheck gate (`tsc --noEmit`) depends on the JSDoc discipline.                                                                                                                                                                                                                                                                                                  |
-| Docs updated in the SAME PR as the change                                  | Docs drift is treated as a CI-visible defect; the sync rules below are specific and mechanical.                                                                                                                                                                                                                                                                                        |
+| Rule                                                                            | Rationale                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Never commit directly to `main`                                                 | Releases are cut from `main` by release-please; every change must arrive reviewed via PR.                                                                                                                                                                                                                                                                                                                                      |
+| Conventional commits, allowed types `feat fix perf refactor test docs chore ci` | release-please derives version bumps and the changelog from commit types (`feat` → minor, `fix` → patch). Format and the type list are enforced by commitlint (`commitlint.config.js`, husky `commit-msg` hook) and in CI by `pull-request.yml`, on both commits and the PR title. The list is atdr/github-boilerplate's; `config-conventional` alone would also accept `style`, `build` and `revert`, so don't use them here. |
+| PR titles use the same conventional format                                      | On squash-merge the title becomes the commit on `main` that release-please reads. Enforced by `pull-request.yml`.                                                                                                                                                                                                                                                                                                              |
+| One logical change per commit                                                   | So it can be reviewed and reverted independently — the 2026-05-03 session relied on clean reverts (`c6f91a1`, `c98ba40`).                                                                                                                                                                                                                                                                                                      |
+| CommonJS only; tests are `.cjs`; JSDoc types; structured logger only            | AGENTS.md rules; the typecheck gate (`tsc --noEmit`) depends on the JSDoc discipline.                                                                                                                                                                                                                                                                                                                                          |
+| Docs updated in the SAME PR as the change                                       | Docs drift is treated as a CI-visible defect; the sync rules below are specific and mechanical.                                                                                                                                                                                                                                                                                                                                |
 
 ## Pre-PR checklist (run every time)
 
@@ -57,16 +57,18 @@ grep -rn "myModuleName\|my-env-var\|my-log-message" README.md docs/ AGENTS.md .e
 - **Local hooks (husky, installed by `npm install`)**: `commit-msg` runs
   commitlint; `pre-commit` runs lint-staged (ESLint + Prettier on staged files
   only).
-- **CI on every PR** (`.github/workflows/ci.yml`): the five gates on Node 20,
-  22, and 24; a separate `Dependency audit` job (`npm audit --audit-level=high`,
-  blocking with `--omit=dev` and advisory-only across the whole tree); plus
-  commitlint over branch commits (dependabot commits exempted) and the
-  conventional-PR-title check.
+- **CI on every PR**, from atdr/github-boilerplate: `ci.yml` runs the five gates
+  on every Node line in LTS, plus a coverage report and a dependency audit
+  (`npm audit --audit-level=high`, blocking with `--omit=dev`, advisory across
+  the whole tree); `pull-request.yml` lints the PR title and branch commits
+  (dependabot commits exempted); `checks.yml` lints Markdown and checks repo
+  conventions. Branch protection requires each workflow's gate job.
 - **Dependencies** (`.github/dependabot.yml`): weekly version updates, plus
   security updates enabled in repo settings rather than in the config.
   Production bumps arrive as `fix(deps)` and therefore cut a patch release;
-  development bumps arrive as `chore(deps)` and are release-silent. Dev security
-  advisories batch into one grouped PR; production ones arrive individually.
+  development bumps arrive as `chore(deps)` and are release-silent. Security
+  advisories are never grouped, so each arrives as its own PR: a grouped
+  security job once hid a high advisory and still reported success.
 - **Releases** (`.github/workflows/release-please.yml`): release-please
   maintains a release PR on `main`; merging it tags a release. You never
   hand-edit versions or changelogs.
@@ -91,7 +93,7 @@ Written 2026-07-04 against commit `d377b02`. Re-verify:
 
 - Rules source: read `AGENTS.md` (short; always current by policy)
 - Allowed commit types: AGENTS.md "Git workflow" section ·
-  `grep -n -A 8 "types:" .github/workflows/pr-title.yml` · dependabot exemption:
+  `grep -n "type-enum" commitlint.config.js` · dependabot exemption:
   `grep -n "ignores" commitlint.config.js`
 - Gates list: `grep -n '"scripts"' -A 10 package.json`
 - CI matrix and audit level:
