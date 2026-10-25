@@ -1,6 +1,7 @@
 # Architecture
 
-This document focuses on stable architecture concepts. It intentionally avoids transient implementation details so it stays useful as internals evolve.
+This document focuses on stable architecture concepts. It intentionally avoids
+transient implementation details so it stays useful as internals evolve.
 
 ## Runtime components
 
@@ -14,7 +15,9 @@ This document focuses on stable architecture concepts. It intentionally avoids t
 - `twilio-api.js`
   - Twilio REST helper for hanging up a call
 - `src/core/media-stream.js`
-  - per-connection Twilio media stream protocol handling (start/media/stop, token check, ringback, teardown) with injected state/HomeKit/logging dependencies
+  - per-connection Twilio media stream protocol handling (start/media/stop,
+    token check, ringback, teardown) with injected state/HomeKit/logging
+    dependencies
 - `src/core/state.js`
   - in-memory call session management and stale-session reaping
 - `src/core/stream-auth.js`
@@ -22,7 +25,9 @@ This document focuses on stable architecture concepts. It intentionally avoids t
 - `src/core/mulaw-audio.js`
   - mu-law audio generation: DTMF tones, ringback cycle, chunked send helpers
 - `src/core/inbound-ffmpeg-args.js`
-  - argument list for the inbound ffmpeg process (mu-law stdin → Opus/SRTP audio plus synthetic H.264/SRTP video), kept pure so it is testable without spawning ffmpeg
+  - argument list for the inbound ffmpeg process (mu-law stdin → Opus/SRTP audio
+    plus synthetic H.264/SRTP video), kept pure so it is testable without
+    spawning ffmpeg
 - `src/core/ws-events-schema.js`
   - Twilio WebSocket envelope validation and media payload parsing
 - `src/core/safe-equal.js`
@@ -32,29 +37,46 @@ This document focuses on stable architecture concepts. It intentionally avoids t
 - `src/core/log.js`
   - lightweight structured logging (JSON lines)
 - `src/core/cli.js`
-  - read-only CLI queries against persisted pairing state (`--qr`, `--check`, `--help`, `--version`)
-  - not part of the running server: `server.js` dispatches to it before any other require, because `config.js` throws on a missing env var and `homekit.js` pulls in that same config. The entry points themselves are inert on require — `server.js` starts from `main()`, `homekit.js` publishes from `start()`, both gated on `require.main === module`
+  - read-only CLI queries against persisted pairing state (`--qr`, `--check`,
+    `--help`, `--version`)
+  - not part of the running server: `server.js` dispatches to it before any
+    other require, because `config.js` throws on a missing env var and
+    `homekit.js` pulls in that same config. The entry points themselves are
+    inert on require — `server.js` starts from `main()`, `homekit.js` publishes
+    from `start()`, both gated on `require.main === module`
 
 ## Request and media flow
 
 1. Twilio sends webhook request to `POST /twiml`.
-2. `server.js` validates Twilio signature and returns TwiML with signed bidirectional WS stream token.
-3. Twilio opens WebSocket stream on `/media`. The handshake's `X-Twilio-Signature` is verified in the HTTP `upgrade` handler, before the socket is handed to `ws`. The signed token is passed as a TwiML `<Parameter>` and arrives in the `start` event's `customParameters`.
-4. Server validates/consumes one-time token and processes WS events (`connected/start/media/stop`).
-5. On `start`, server initializes call state and connects Twilio mulaw stream to HomeKit pipeline.
+2. `server.js` validates Twilio signature and returns TwiML with signed
+   bidirectional WS stream token.
+3. Twilio opens WebSocket stream on `/media`. The handshake's
+   `X-Twilio-Signature` is verified in the HTTP `upgrade` handler, before the
+   socket is handed to `ws`. The signed token is passed as a TwiML `<Parameter>`
+   and arrives in the `start` event's `customParameters`.
+4. Server validates/consumes one-time token and processes WS events
+   (`connected/start/media/stop`).
+5. On `start`, server initializes call state and connects Twilio mulaw stream to
+   HomeKit pipeline.
 6. HomeKit sessions use ffmpeg to:
    - ingest Twilio inbound mulaw and forward media to HomeKit SRTP
    - ingest HomeKit return audio and forward mulaw payloads back to Twilio WS
    - send generated ringback and unlock DTMF back to Twilio over the same WS
-7. Call/session cleanup occurs on Twilio `stop`, WS close, stale timeout, or shutdown.
-8. Closing the HomeKit live view tears down the ffmpeg pipelines immediately and stops forwarding Twilio audio (`homekit-session-ended`), but hangs up the Twilio call only after `HOMEKIT_HANGUP_GRACE_MS`, so the lock tile in the room view still has a call to send DTMF to. Reopening the view, or the caller hanging up, cancels the pending hangup; sending unlock restarts the window.
+7. Call/session cleanup occurs on Twilio `stop`, WS close, stale timeout, or
+   shutdown.
+8. Closing the HomeKit live view tears down the ffmpeg pipelines immediately and
+   stops forwarding Twilio audio (`homekit-session-ended`), but hangs up the
+   Twilio call only after `HOMEKIT_HANGUP_GRACE_MS`, so the lock tile in the
+   room view still has a call to send DTMF to. Reopening the view, or the caller
+   hanging up, cancels the pending hangup; sending unlock restarts the window.
 
 ## Session model
 
 Session state is managed by `src/core/state.js`:
 
 - one active call at a time
-- session stores `callSid`, `streamSid`, websocket connection, timestamps, last activity
+- session stores `callSid`, `streamSid`, websocket connection, timestamps, last
+  activity
 - stale reaper clears inactive sessions and triggers cleanup callback
 - explicit clear paths:
   - by active call
@@ -66,13 +88,17 @@ Session state is managed by `src/core/state.js`:
 - TwiML webhook auth:
   - Twilio signature validation on `POST /twiml`
 - Media stream auth:
-  - Twilio signature validation on the `/media` WebSocket handshake, before the socket is accepted (`TWILIO_MEDIA_SIGNATURE_MODE`, default `log`). Defence in depth: the handshake has no body or query string, so the signature is an HMAC over a constant URL and is identical on every call
+  - Twilio signature validation on the `/media` WebSocket handshake, before the
+    socket is accepted (`TWILIO_MEDIA_SIGNATURE_MODE`, default `log`). Defence
+    in depth: the handshake has no body or query string, so the signature is an
+    HMAC over a constant URL and is identical on every call
   - short-lived HMAC-signed stream tokens
   - one-time nonce consumption to prevent replay
 - Status endpoint auth:
   - bearer token validation for `GET /status`
 - Intentionally unauthenticated:
-  - `GET /healthz` and `GET /readyz` (liveness/readiness probes, return only `{"ok":true}`)
+  - `GET /healthz` and `GET /readyz` (liveness/readiness probes, return only
+    `{"ok":true}`)
   - `GET /ringtone` (debug WAV)
 
 ## Logging model

@@ -5,12 +5,17 @@ description: Symptom→triage table, log-event inventory, discriminating experim
 
 # Debugging playbook
 
-**Use this skill when** something misbehaves at runtime and you need to go from symptom to cause with evidence.
-**Do NOT use it for**: the intermittent two-way-audio problem specifically (`intercom-two-way-audio-campaign` is the dedicated, gated campaign), protocol background (`telephony-audio-reference`), or deciding how to land a fix (`intercom-change-control-and-docs`).
+**Use this skill when** something misbehaves at runtime and you need to go from
+symptom to cause with evidence. **Do NOT use it for**: the intermittent
+two-way-audio problem specifically (`intercom-two-way-audio-campaign` is the
+dedicated, gated campaign), protocol background (`telephony-audio-reference`),
+or deciding how to land a fix (`intercom-change-control-and-docs`).
 
 ## Reading the logs
 
-Structured JSON lines. Canonical fields: `component`, `event`, `callSid`, `reason`, `durationMs`. `debug`/`info` → stdout, `warn`/`error` → stderr; under systemd both land in the journal:
+Structured JSON lines. Canonical fields: `component`, `event`, `callSid`,
+`reason`, `durationMs`. `debug`/`info` → stdout, `warn`/`error` → stderr; under
+systemd both land in the journal:
 
 ```bash
 journalctl -u intercom --since "10 min ago" -o cat          # raw JSON lines
@@ -18,13 +23,17 @@ journalctl -u intercom -o cat | grep '"event":"start"'      # grep by event
 journalctl -u intercom -o cat | grep '"level":"warn"\|"level":"error"'
 ```
 
-Set `LOG_LEVEL=debug` in `.env` (and restart) for more detail; `LOG_PRETTY=1` for indented output during local runs.
+Set `LOG_LEVEL=debug` in `.env` (and restart) for more detail; `LOG_PRETTY=1`
+for indented output during local runs.
 
-Note: `"event":"start"` is emitted at **info** level when the start is accepted and at **warn** level when it is rejected (with a `reason`) — include `"level"` in your grep to tell them apart.
+Note: `"event":"start"` is emitted at **info** level when the start is accepted
+and at **warn** level when it is rejected (with a `reason`) — include `"level"`
+in your grep to tell them apart.
 
 ## Golden path — the event sequence of a healthy call
 
-Compare a failing call's journal against this order. The first missing/deviating event localises the fault.
+Compare a failing call's journal against this order. The first missing/deviating
+event localises the fault.
 
 | #   | component | event                                                 | Meaning                                                                                                                                              |
 | --- | --------- | ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -40,7 +49,8 @@ Compare a failing call's journal against this order. The first missing/deviating
 | 10  | media-ws  | `stop` then `session-ended`                           | Caller hung up; teardown                                                                                                                             |
 | 11  | homekit   | `ffin-exit` / `ffout-exit`                            | ffmpeg processes reaped                                                                                                                              |
 
-(If HomeKit hangs up first, expect `ffin-exit` → `hangup` (component `twilio-api`) instead of 10.)
+(If HomeKit hangs up first, expect `ffin-exit` → `hangup` (component
+`twilio-api`) instead of 10.)
 
 ## Symptom → triage
 
@@ -62,14 +72,33 @@ Compare a failing call's journal against this order. The first missing/deviating
 
 ## Log-event inventory (grep-able, complete as of 2026-07-04)
 
-- **server**: `server-start`, `request-handler-error`, `session-stale`, `stale-close-failed`, `shutdown-start`, `shutdown-force-exit`, `shutdown-complete`, `uncaught-exception`, `unhandled-rejection`
-- **twiml**: `twiml-request`, `twiml-response`, `twiml-rejected`, `twiml-body-read-failed`, `twiml-unhandled-error`
-- **media-ws**: `media-ws-accepted`, `connected`, `start`, `media`, `stop`, `session-ended`, `ringback-stopped`, `media-frames-dropped`, `media-frames-resumed`, `media-ws-message-too-large`, `media-ws-invalid-json`, `media-ws-invalid-event-payload`, `media-ws-unsupported-event`, `media-ws-handshake-verified`, `media-ws-rejected`, `media-ws-error`, `homekit-session-ended`
-- **homekit**: `accessory-published`, `accessory-qr-setup`, `accessory-qr-suppressed`, `accessory-start-repeated`, `accessory-unpublish-failed`, `snapshot-ready`, `doorbell-triggered`, `mulaw-stream-bound`, `mulaw-stream-rebound`, `stream-prepare-failed`, `stream-start-failed`, `ffin-stderr`, `ffin-exit`, `ffout-stderr`, `ffout-exit`, `unlock-requested`, `unlock-failed`, `unlock-no-active-call`, `hangup-scheduled`, `hangup-cancelled`, `hangup-skipped`, `hangup-call-already-ended`, `hangup-call-failed`
+- **server**: `server-start`, `request-handler-error`, `session-stale`,
+  `stale-close-failed`, `shutdown-start`, `shutdown-force-exit`,
+  `shutdown-complete`, `uncaught-exception`, `unhandled-rejection`
+- **twiml**: `twiml-request`, `twiml-response`, `twiml-rejected`,
+  `twiml-body-read-failed`, `twiml-unhandled-error`
+- **media-ws**: `media-ws-accepted`, `connected`, `start`, `media`, `stop`,
+  `session-ended`, `ringback-stopped`, `media-frames-dropped`,
+  `media-frames-resumed`, `media-ws-message-too-large`, `media-ws-invalid-json`,
+  `media-ws-invalid-event-payload`, `media-ws-unsupported-event`,
+  `media-ws-handshake-verified`, `media-ws-rejected`, `media-ws-error`,
+  `homekit-session-ended`
+- **homekit**: `accessory-published`, `accessory-qr-setup`,
+  `accessory-qr-suppressed`, `accessory-start-repeated`,
+  `accessory-unpublish-failed`, `snapshot-ready`, `doorbell-triggered`,
+  `mulaw-stream-bound`, `mulaw-stream-rebound`, `stream-prepare-failed`,
+  `stream-start-failed`, `ffin-stderr`, `ffin-exit`, `ffout-stderr`,
+  `ffout-exit`, `unlock-requested`, `unlock-failed`, `unlock-no-active-call`,
+  `hangup-scheduled`, `hangup-cancelled`, `hangup-skipped`,
+  `hangup-call-already-ended`, `hangup-call-failed`
 - **twilio-api**: `hangup`
 - **state**: `stale-handler-failed`
 
-Re-generate this inventory any time: `grep -rhoE "event: '[a-z-]+'" server.js homekit.js twilio-api.js src/core/ | sort -u`
+Re-generate this inventory any time:
+
+```bash
+grep -rhoE "event: '[a-z-]+'" server.js homekit.js twilio-api.js src/core/ | sort -u
+```
 
 ## Failure archaeology — settled battles, do not re-fight
 
@@ -92,17 +121,30 @@ Re-generate this inventory any time: `grep -rhoE "event: '[a-z-]+'" server.js ho
 
 ### Fenced-off wrong paths (tried, failed, reverted)
 
-- **Do not add outbound media frame pacing** — tried in `79df86b`, reverted hours later (`c6f91a1`).
-- **Do not add outbound media queue bounding** — tried in `7dd02c0`, reverted (`c98ba40`).
-  Both require new packet-level evidence before retrying; see the campaign skill's solution menu.
-- **Do not assume Opus payload type 110** — the START request's negotiated PT is authoritative.
+- **Do not add outbound media frame pacing** — tried in `79df86b`, reverted
+  hours later (`c6f91a1`).
+- **Do not add outbound media queue bounding** — tried in `7dd02c0`, reverted
+  (`c98ba40`). Both require new packet-level evidence before retrying; see the
+  campaign skill's solution menu.
+- **Do not assume Opus payload type 110** — the START request's negotiated PT is
+  authoritative.
 - **Do not move the stream token back to the WS URL query string.**
 
 ## Provenance and maintenance
 
 Written 2026-07-04 against commit `d377b02`. Re-verify:
 
-- Event inventory: `grep -rhoE "event: '[a-z-]+'" server.js homekit.js twilio-api.js src/core/ | sort -u`
-- Golden-path claims: README "End-to-end test sequence" (doc of record for expected pass output)
-- Archaeology commits: `git log --oneline | grep -iE "revert|ringtone|avahi|token|SRTP|SSRC|timestamps"`
-- Stale-reaper default: `grep -n "CALL_SESSION_STALE_SEC" src/core/config.js .env.example`
+- Event inventory:
+
+  ```bash
+  grep -rhoE "event: '[a-z-]+'" server.js homekit.js twilio-api.js src/core/ | sort -u
+  ```
+
+- Golden-path claims: README "End-to-end test sequence" (doc of record for
+  expected pass output)
+
+- Archaeology commits:
+  `git log --oneline | grep -iE "revert|ringtone|avahi|token|SRTP|SSRC|timestamps"`
+
+- Stale-reaper default:
+  `grep -n "CALL_SESSION_STALE_SEC" src/core/config.js .env.example`

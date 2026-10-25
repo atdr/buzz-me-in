@@ -2,3 +2,7 @@ node_modules/
 persist/
 package-lock.json
 CHANGELOG.md
+
+# mdformat owns Markdown (.mdformat.toml). Prettier formats it differently,
+# so with both the two would keep undoing each other.
+*.md
