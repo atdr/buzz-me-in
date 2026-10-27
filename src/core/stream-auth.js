@@ -10,14 +10,14 @@ const STREAM_TOKEN_VERSION = 1;
 const STREAM_PATH = '/media';
 const pendingStreamNonces = new Map();
 
+// Node's native base64url is unpadded RFC 4648 §5, the same format the old
+// replace() chain produced, so tokens issued before this change still verify.
 function toBase64Url(buffer) {
-  return buffer.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+  return buffer.toString('base64url');
 }
 
 function fromBase64Url(value) {
-  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
-  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
-  return Buffer.from(padded, 'base64');
+  return Buffer.from(value, 'base64url');
 }
 
 function pruneExpiredNonces() {
