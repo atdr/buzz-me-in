@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.0.1](https://github.com/atdr/buzz-me-in/compare/v3.0.0...v3.0.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **core:** use native base64url in stream auth ([#136](https://github.com/atdr/buzz-me-in/issues/136)) ([c275bfd](https://github.com/atdr/buzz-me-in/commit/c275bfd9bb63705d9e405f729224c06d38f96e0f))
+* **deps:** bump qs from 6.16.0 to 6.17.0 ([#134](https://github.com/atdr/buzz-me-in/issues/134)) ([24209d3](https://github.com/atdr/buzz-me-in/commit/24209d3d4cb8f24949d55bfe92f317d53c45df73))
+
 ## [3.0.0](https://github.com/atdr/buzz-me-in/compare/v2.2.4...v3.0.0) (2026-10-25)
 
 
