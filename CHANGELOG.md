@@ -1,5 +1,12 @@
 # Changelog
 
+## [3.0.2](https://github.com/atdr/buzz-me-in/compare/v3.0.1...v3.0.2) (2026-10-29)
+
+
+### Bug Fixes
+
+* **deps:** bump dotenv from 18.0.8 to 18.0.9 ([#138](https://github.com/atdr/buzz-me-in/issues/138)) ([72411f7](https://github.com/atdr/buzz-me-in/commit/72411f761c27c6cc866d6506c9df65c8b0537e2f))
+
 ## [3.0.1](https://github.com/atdr/buzz-me-in/compare/v3.0.0...v3.0.1) (2026-10-27)
 
 
