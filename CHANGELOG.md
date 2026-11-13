@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.0.3](https://github.com/atdr/buzz-me-in/compare/v3.0.2...v3.0.3) (2026-11-13)
+
+
+### Bug Fixes
+
+* **deps:** bump dotenv from 18.0.9 to 18.0.10 ([#148](https://github.com/atdr/buzz-me-in/issues/148)) ([b038c57](https://github.com/atdr/buzz-me-in/commit/b038c570282e4fd07230921c56cd0ce284bd3d00))
+* **deps:** bump twilio from 6.2.0 to 6.3.0 ([#149](https://github.com/atdr/buzz-me-in/issues/149)) ([a5d70a0](https://github.com/atdr/buzz-me-in/commit/a5d70a0a8a0ac90ee3b1949435b35f6bcb0c9c80))
+* **deps:** bump ws from 8.22.0 to 8.22.2 ([#147](https://github.com/atdr/buzz-me-in/issues/147)) ([af3677b](https://github.com/atdr/buzz-me-in/commit/af3677b97d5472f21b8a28653b0d8aa58a264e27))
+
 ## [3.0.2](https://github.com/atdr/buzz-me-in/compare/v3.0.1...v3.0.2) (2026-11-07)
 
 
