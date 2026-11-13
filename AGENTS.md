@@ -108,8 +108,9 @@ CI also runs a **coverage** job, which like the dependency audit is not one of
 the five gates. It re-runs the suite under V8 instrumentation to produce
 `lcov.info` and uploads it to Codecov, which supplies the README badge and
 per-PR comments. The Node matrix is what proves the suite passes; coverage only
-reports on it. Codecov's own status checks are `informational` in `codecov.yml`
-so they can never block a merge, and the upload step is `continue-on-error`. The
+reports on it. Codecov's own status checks in `codecov.yml` are able to fail
+(the boilerplate conventions check rejects `informational: true`), with a `0.1%`
+threshold on the project status, and the upload step is `continue-on-error`. The
 coverage run itself stays blocking.
 
 CI calls the local script rather than its own command line, so the two cannot
