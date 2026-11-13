@@ -235,15 +235,12 @@ describe('coverage reporting config', () => {
     );
   });
 
-  test('leaves Codecov unable to block a merge', () => {
-    // Without this, Codecov adds two status checks it owns to every PR. CI is the gate.
+  test('keeps the Codecov statuses able to fail', () => {
+    // The boilerplate conventions check requires this: an informational status
+    // can never fail, so it says nothing.
     const codecov = read('codecov.yml');
-    const informational = [...codecov.matchAll(/informational: true/g)];
-    assert.equal(
-      informational.length,
-      2,
-      'both the project and patch statuses must be informational'
-    );
+    assert.doesNotMatch(codecov, /informational: true/);
+    assert.match(codecov, /threshold: 0\.1%/, 'the project status needs a threshold');
     for (const status of ['project:', 'patch:']) {
       assert.ok(
         codecov.includes(status),

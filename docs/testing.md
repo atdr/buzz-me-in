@@ -123,12 +123,13 @@ rather than by hand; a red audit check now means genuine production exposure.
 A `coverage` job re-runs the suite under V8 instrumentation on the newest LTS
 Node and uploads `lcov.info` to Codecov, which supplies the README badge, per-PR
 comments, and history. It is reporting, not a sixth gate: the Node matrix is
-what proves the suite passes. Codecov's own status checks are set
-`informational` in `codecov.yml` so they can never block a merge, and the upload
-step is `continue-on-error` because an outage there says nothing about the
-change under review. The coverage run itself stays blocking. CI calls
-`npm run coverage` rather than its own command line so local and CI measure the
-same thing; `tests/coverage.test.cjs` guards that and the rest of the setup.
+what proves the suite passes. Codecov's own status checks in `codecov.yml` are
+able to fail (the boilerplate conventions check rejects `informational: true`),
+with a `0.1%` threshold on the project status, and the upload step is
+`continue-on-error` because an outage there says nothing about the change under
+review. The coverage run itself stays blocking. CI calls `npm run coverage`
+rather than its own command line so local and CI measure the same thing;
+`tests/coverage.test.cjs` guards that and the rest of the setup.
 
 ```bash
 npm run coverage   # needs Node >= 22.5; writes lcov.info (gitignored)

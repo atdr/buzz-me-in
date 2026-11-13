@@ -1,14 +1,12 @@
-# Coverage reports; it does not gate. The test run that produces the report is
-# what blocks a merge, and a percentage moving says nothing about whether the
-# change under review is right.
+# Coverage statuses must be able to fail, or they say nothing. The threshold
+# keeps one untested line at high coverage from turning the project status red.
 coverage:
   status:
     project:
       default:
-        informational: true
+        threshold: 0.1%
     patch:
-      default:
-        informational: true
+      default: {}
 comment:
   layout: 'condensed_header, diff, files'
   require_changes: true
