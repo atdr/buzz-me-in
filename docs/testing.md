@@ -156,5 +156,17 @@ before each commit.
 Releases are automated by release-please, which maintains a release PR on `main`
 derived from conventional commit history.
 
+Dependabot's patch and minor bumps merge themselves: `auto-merge.yml` calls
+atdr/github-boilerplate's `dependabot-auto-merge`, which switches on GitHub's
+auto-merge once it sees the highest bump in the PR is a patch or minor. The
+merge still waits for every gate the ruleset requires, and only happens where
+the repository has auto-merge on (`configure.sh` turns it on where the ruleset
+requires the gates). Majors wait for review. Each package ecosystem has a three
+day `cooldown`, so a freshly published release cannot merge itself within hours;
+security updates skip it. A merge made this way is pushed by `GITHUB_TOKEN`,
+which starts no `push` workflow, so CI on `main` and release-please's update of
+the release PR happen on the next push. A production `fix(deps)` bump therefore
+reaches the release PR then, not at once.
+
 If a change passes locally but fails in CI, first verify Node version parity and
 rerun all commands from a clean working tree.
