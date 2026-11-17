@@ -1,5 +1,13 @@
 # Changelog
 
+## [3.0.4](https://github.com/atdr/buzz-me-in/compare/v3.0.3...v3.0.4) (2026-11-17)
+
+
+### Bug Fixes
+
+* **config:** reject malformed numeric environment values ([#170](https://github.com/atdr/buzz-me-in/issues/170)) ([cf95802](https://github.com/atdr/buzz-me-in/commit/cf958022e6feb21440df56c6ec7e05cd811f90ce))
+* **deps:** bump ws from 8.22.2 to 8.23.0 ([#153](https://github.com/atdr/buzz-me-in/issues/153)) ([f97872a](https://github.com/atdr/buzz-me-in/commit/f97872a3f6b9336c15a078817f5c0ed5c1f59a23))
+
 ## [3.0.3](https://github.com/atdr/buzz-me-in/compare/v3.0.2...v3.0.3) (2026-11-13)
 
 
