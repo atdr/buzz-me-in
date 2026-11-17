@@ -24,6 +24,9 @@ function optional(name) {
 function parsePositiveInt(name, fallback) {
   const raw = process.env[name];
   const value = raw && raw.trim() ? raw.trim() : fallback;
+  if (!/^\d+$/.test(value)) {
+    fail(`${name} must be a positive integer`);
+  }
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     fail(`${name} must be a positive integer`);
@@ -34,6 +37,9 @@ function parsePositiveInt(name, fallback) {
 function parsePort(name, fallback) {
   const raw = process.env[name];
   const value = raw && raw.trim() ? raw.trim() : fallback;
+  if (!/^\d+$/.test(value)) {
+    fail(`${name} must be a valid TCP/UDP port`);
+  }
   const port = Number.parseInt(value, 10);
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
     fail(`${name} must be a valid TCP/UDP port`);

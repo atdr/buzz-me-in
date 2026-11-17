@@ -81,3 +81,27 @@ test('config rejects non-positive integer tuning value', () => {
     assert.throws(() => freshRequire('../../src/core/config.js'), /WS_MAX_MESSAGE_BYTES/);
   });
 });
+
+for (const [name, value] of [
+  ['HOMEKIT_HANGUP_GRACE_MS', '1e4'],
+  ['SHUTDOWN_GRACE_MS', '10s'],
+  ['CALL_SESSION_STALE_SEC', '1.5e3'],
+]) {
+  test(`config rejects malformed positive integer ${name}`, () => {
+    withEnv({ ...BASE_ENV, [name]: value }, () => {
+      assert.throws(
+        () => freshRequire('../../src/core/config.js'),
+        new RegExp(`${name} must be a positive integer`)
+      );
+    });
+  });
+}
+
+test('config rejects a port with trailing non-numeric characters', () => {
+  withEnv({ ...BASE_ENV, PORT: '8080abc' }, () => {
+    assert.throws(
+      () => freshRequire('../../src/core/config.js'),
+      /PORT must be a valid TCP\/UDP port/
+    );
+  });
+});
