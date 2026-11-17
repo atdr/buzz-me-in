@@ -25,7 +25,11 @@ jobs:
     name: publish prerelease to npm
     timeout-minutes: 10
     runs-on: ubuntu-latest
-    environment: npm-prerelease # scopes the OIDC token so npm's trusted publisher can require it
+    # Scopes the OIDC token so npm's trusted publisher can require it. The url
+    # puts a link to the published version on the deployment.
+    environment:
+      name: npm-prerelease
+      url: ${{ steps.publish.outputs.url }}
     permissions:
       contents: read
       id-token: write # OIDC for npm trusted publishing; provenance is automatic
@@ -56,7 +60,13 @@ jobs:
       # Runner-local bump, never committed: main keeps its released version and
       # the pending release-please PR keeps proposing a clean next version.
       - run: npm version "$VERSION" --no-git-tag-version
-      - run: npm publish --tag "$DIST_TAG"
+      - name: Publish
+        id: publish
+        run: |
+          npm publish --tag "$DIST_TAG"
+          # After the publish, so a failed one links nowhere.
+          name=$(node -p 'require("./package.json").name')
+          echo "url=https://www.npmjs.com/package/$name/v/$VERSION" >> "$GITHUB_OUTPUT"
 
   tag-prerelease:
     # Records which commit a beta was built from, so a report against
