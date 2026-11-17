@@ -45,7 +45,7 @@ test('publish job can authenticate to npm over OIDC', () => {
 test('publish job declares an environment so npm can require the claim', () => {
   assert.match(
     jobs.get('publish'),
-    /environment: npm-release/,
+    /environment:\s+(?:name: )?npm-release\b/,
     'the OIDC token carries no environment claim without an environment'
   );
 });

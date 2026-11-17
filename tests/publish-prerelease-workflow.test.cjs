@@ -42,7 +42,7 @@ test('publish job can authenticate to npm over OIDC', () => {
 test('publish job declares its own environment', () => {
   // A separate environment from the release path, unrestricted by branch, so a
   // beta can be dispatched from a PR branch before merge.
-  assert.match(jobs.get('publish-prerelease'), /environment: npm-prerelease/);
+  assert.match(jobs.get('publish-prerelease'), /environment:\s+(?:name: )?npm-prerelease\b/);
 });
 
 test('a stable version is refused', () => {
