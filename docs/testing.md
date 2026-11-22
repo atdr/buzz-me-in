@@ -57,7 +57,9 @@ npm run test
   destroys (pairing-loss guard)
 - `tests/homekit-hangup-grace.test.cjs` - the call is held open after the live
   view closes, and the pending hangup is cancelled, deferred, superseded or
-  skipped correctly (unlock-from-room-view guard)
+  skipped correctly (unlock-from-room-view guard), and a START whose ffmpeg
+  fails to spawn is answered once with an error and cleaned up instead of
+  crashing the process (`child_process.spawn` stubbed, no real ffmpeg)
 - `tests/cli.test.cjs` - `--qr`/`--check`/`--help`/`--version`, plus the
   hap-nodejs and node-persist behaviours they rest on
 - `tests/publish-release-workflow.test.cjs` - release publish workflow guards
