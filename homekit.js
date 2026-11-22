@@ -278,63 +278,150 @@ const streamingDelegate = {
 // Session start: spawn inbound and outbound ffmpeg processes
 // ---------------------------------------------------------------------------
 
+/**
+ * Spawn both ffmpeg legs for a START and answer HomeKit's callback once.
+ *
+ * Node reports a failed spawn (ENOENT with ffmpeg missing from PATH, EAGAIN or
+ * ENOMEM under pressure) as an asynchronous 'error' event on the child, not as
+ * a throw. An 'error' event with no listener is rethrown, reaches the
+ * uncaughtException handler in server.js and exits the process, which drops
+ * the Twilio call with it. So both children carry an 'error' listener, and the
+ * callback waits for each child's 'spawn' event (one tick away) before telling
+ * HomeKit the stream is up: a START either succeeds with two running
+ * processes, or fails once with an error and leaves nothing behind.
+ *
+ * @param {string} sessionID
+ * @param {any} s Session record from prepareStreamSession.
+ * @param {any} request HAP START request.
+ * @param {(error?: Error) => void} callback HAP's START callback.
+ */
 function _startSession(sessionID, s, request, callback) {
   // Reopening the live view inside the grace window means the user is not
   // finished after all.
   cancelPendingHangUp('homekit-session-restarted');
   const audio = request.audio;
 
-  // Inbound ffmpeg: see src/core/inbound-ffmpeg-args.js for the pipeline.
-  const ffIn = spawn(
-    'ffmpeg',
-    buildInboundFfmpegArgs({
-      video: request.video,
-      audio,
-      videoParams: srtpParams(s.hkVideoKey, s.hkVideoSalt),
-      audioParams: srtpParams(s.hkAudioKey, s.hkAudioSalt),
-      targetAddress: s.targetAddress,
-      hkVideoPort: s.hkVideoPort,
-      hkAudioPort: s.hkAudioPort,
-      videoSsrc: s.videoSsrc,
-      audioSsrc: s.audioSsrc,
-    })
-  );
-
-  ffIn.stderr.on('data', (d) => {
-    logger.warn('Inbound ffmpeg stderr', {
-      event: 'ffin-stderr',
-      reason: 'ffmpeg-stderr',
-      detail: d.toString('utf8').trim(),
-      sessionId: sessionID,
-    });
-  });
-  ffIn.on('close', (code) => {
-    logger.info('Inbound ffmpeg exited', {
-      event: 'ffin-exit',
-      reason: code === 0 ? 'clean-exit' : 'nonzero-exit',
-      exitCode: code,
-      sessionId: sessionID,
-    });
-  });
-  ffIn.stdin.on('error', () => {}); // suppress EPIPE when stream ends
-
-  // -------------------------------------------------------------------------
-  // Outbound ffmpeg
-  //
-  // iPhone → SRTP → returnAudioPort → ffmpeg (Opus decode + mulaw encode)
-  //        → stdout → Node.js → Twilio WebSocket JSON envelope
-  //
-  // The SDP file tells ffmpeg how to receive and decrypt the SRTP stream.
-  //
-  // Use the negotiated Opus payload type from HomeKit's START request; older
-  // versions assumed 110, which breaks when the controller chooses otherwise.
-  // -------------------------------------------------------------------------
-  // ffIn is already spawned above; from here on, any throw (SDP write failure,
-  // ffOut spawn) must tear it down and fail the START, otherwise the inbound
-  // ffmpeg leaks and HomeKit's callback never fires.
-  let sdpPath;
+  let settled = false;
+  /** @type {import('child_process').ChildProcess | undefined} */
+  let ffIn;
+  /** @type {import('child_process').ChildProcess | undefined} */
   let ffOut;
+  let sdpPath;
+  /** @type {Set<import('child_process').ChildProcess>} */
+  const awaitingSpawn = new Set();
+
+  /**
+   * Fail this START exactly once: tear down whatever did start, forget the
+   * session and hand HomeKit the error. HAP-NodeJS resets its own stream
+   * state when the START callback carries an error.
+   * @param {string} reason
+   * @param {unknown} error
+   */
+  function failStart(reason, error) {
+    settled = true;
+    logger.error('Failed to start HomeKit stream session', {
+      event: 'stream-start-failed',
+      reason,
+      sessionId: sessionID,
+      error,
+    });
+    const current = activeSessions.get(sessionID);
+    // A STOP can only have removed or replaced the entry in between if HAP
+    // misbehaved; only forget the record this START owns.
+    if (current && (current.ffIn === undefined || current.ffIn === ffIn)) {
+      activeSessions.delete(sessionID);
+    }
+    releaseSessionResources({ ffIn, ffOut, sdpPath, mulawStream: current && current.mulawStream });
+    callback(error instanceof Error ? error : new Error(String(error)));
+  }
+
+  /**
+   * @param {'ffin' | 'ffout'} leg
+   * @param {import('child_process').ChildProcess} child
+   */
+  function watchSpawn(leg, child) {
+    awaitingSpawn.add(child);
+    child.once('spawn', () => {
+      awaitingSpawn.delete(child);
+      if (settled || awaitingSpawn.size !== 0) return;
+      settled = true;
+      const activeCall = getActiveCall();
+      if (activeCall && onHapSessionStarted) {
+        onHapSessionStarted(activeCall.callSid);
+      }
+      callback();
+    });
+    child.on('error', (error) => {
+      if (!settled) {
+        failStart(`${leg}-spawn-failed`, error);
+        return;
+      }
+      // The START has already been answered, so this is a running session
+      // losing a process rather than a failed start.
+      const current = activeSessions.get(sessionID);
+      if (!current || (current.ffIn !== child && current.ffOut !== child)) return;
+      logger.warn('ffmpeg process error ended the HomeKit stream session', {
+        event: 'stream-ended-unexpectedly',
+        reason: `${leg}-process-error`,
+        sessionId: sessionID,
+        error,
+      });
+      _stopSession(sessionID, /* hangUp= */ false);
+    });
+  }
+
+  // Any synchronous throw from here on (spawn() rejecting its arguments, a
+  // child with no stdio after EMFILE, the SDP write) must also tear down what
+  // already started and fail the START, otherwise an ffmpeg leaks and
+  // HomeKit's callback never fires. Asynchronous spawn failures arrive on the
+  // 'error' listeners in watchSpawn instead.
   try {
+    // Inbound ffmpeg: see src/core/inbound-ffmpeg-args.js for the pipeline.
+    ffIn = spawn(
+      'ffmpeg',
+      buildInboundFfmpegArgs({
+        video: request.video,
+        audio,
+        videoParams: srtpParams(s.hkVideoKey, s.hkVideoSalt),
+        audioParams: srtpParams(s.hkAudioKey, s.hkAudioSalt),
+        targetAddress: s.targetAddress,
+        hkVideoPort: s.hkVideoPort,
+        hkAudioPort: s.hkAudioPort,
+        videoSsrc: s.videoSsrc,
+        audioSsrc: s.audioSsrc,
+      })
+    );
+    watchSpawn('ffin', ffIn);
+
+    ffIn.stderr.on('data', (d) => {
+      logger.warn('Inbound ffmpeg stderr', {
+        event: 'ffin-stderr',
+        reason: 'ffmpeg-stderr',
+        detail: d.toString('utf8').trim(),
+        sessionId: sessionID,
+      });
+    });
+    ffIn.on('close', (code) => {
+      logger.info('Inbound ffmpeg exited', {
+        event: 'ffin-exit',
+        reason: code === 0 ? 'clean-exit' : 'nonzero-exit',
+        exitCode: code,
+        sessionId: sessionID,
+      });
+    });
+    ffIn.stdin.on('error', () => {}); // suppress EPIPE when stream ends
+
+    // -----------------------------------------------------------------------
+    // Outbound ffmpeg
+    //
+    // iPhone → SRTP → returnAudioPort → ffmpeg (Opus decode + mulaw encode)
+    //        → stdout → Node.js → Twilio WebSocket JSON envelope
+    //
+    // The SDP file tells ffmpeg how to receive and decrypt the SRTP stream.
+    //
+    // Use the negotiated Opus payload type from HomeKit's START request; older
+    // versions assumed 110, which breaks when the controller chooses otherwise.
+    // -----------------------------------------------------------------------
     sdpPath = writeReturnAudioSdp({
       sessionID,
       port: s.returnAudioPort,
@@ -367,6 +454,7 @@ function _startSession(sessionID, s, request, callback) {
       '1',
       'pipe:1',
     ]);
+    watchSpawn('ffout', ffOut);
 
     ffOut.stderr.on('data', (d) => {
       logger.warn('Outbound ffmpeg stderr', {
@@ -396,26 +484,10 @@ function _startSession(sessionID, s, request, callback) {
     activeSessions.set(sessionID, { ...s, ffIn, ffOut, sdpPath });
     attachMulawStreamToSession(sessionID, currentMulawStream);
   } catch (error) {
-    logger.error('Failed to start HomeKit stream session', {
-      event: 'stream-start-failed',
-      reason: 'session-setup-threw',
-      sessionId: sessionID,
-      error,
-    });
-    activeSessions.delete(sessionID);
-    killFfmpeg(ffIn);
-    if (ffOut) killFfmpeg(ffOut);
-    if (sdpPath) removeReturnAudioSdp(sdpPath);
-    callback(error);
-    return;
+    // An 'error' event can only be pending, never already delivered, so the
+    // START is still unanswered here.
+    failStart('session-setup-threw', error);
   }
-
-  const activeCall = getActiveCall();
-  if (activeCall && onHapSessionStarted) {
-    onHapSessionStarted(activeCall.callSid);
-  }
-
-  callback();
 }
 
 // ---------------------------------------------------------------------------
@@ -440,21 +512,32 @@ function killFfmpeg(proc) {
   proc.once('exit', () => clearTimeout(escalation));
 }
 
+/**
+ * Unpipe the mulaw stream from ffIn, stop both ffmpeg legs and remove the
+ * return-audio SDP. Every field may be missing: a START that failed partway
+ * through has only what it got to.
+ * @param {{ ffIn?: import('child_process').ChildProcess, ffOut?: import('child_process').ChildProcess, sdpPath?: string, mulawStream?: import('stream').Readable }} resources
+ */
+function releaseSessionResources({ ffIn, ffOut, sdpPath, mulawStream }) {
+  if (ffIn) {
+    const source = mulawStream || currentMulawStream;
+    if (source && ffIn.stdin) {
+      try {
+        source.unpipe(ffIn.stdin);
+      } catch {}
+    }
+    killFfmpeg(ffIn);
+  }
+  if (ffOut) killFfmpeg(ffOut);
+  if (sdpPath) removeReturnAudioSdp(sdpPath);
+}
+
 function _stopSession(sessionID, hangUp) {
   const s = activeSessions.get(sessionID);
   if (!s) return;
   activeSessions.delete(sessionID);
 
-  if (s.ffIn) {
-    if (s.mulawStream || currentMulawStream) {
-      try {
-        (s.mulawStream || currentMulawStream).unpipe(s.ffIn.stdin);
-      } catch {}
-    }
-    killFfmpeg(s.ffIn);
-  }
-  if (s.ffOut) killFfmpeg(s.ffOut);
-  if (s.sdpPath) removeReturnAudioSdp(s.sdpPath);
+  releaseSessionResources(s);
 
   // Only the last session ending means the user is finished. HomeKit runs up
   // to cameraStreamCount sessions at once, and moving between the room view's
@@ -843,4 +926,7 @@ module.exports = {
   deferPendingHangUp,
   _stopSession,
   activeSessions,
+  // Exported for the START tests in the same file, which drive a session
+  // through handleStreamRequest with child_process.spawn stubbed.
+  streamingDelegate,
 };
