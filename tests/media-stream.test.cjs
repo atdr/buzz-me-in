@@ -134,12 +134,12 @@ describe('media stream protocol', () => {
     h.connection.close();
   });
 
-  test('start with live HomeKit sessions skips doorbell and ringback', () => {
+  test('start with live HomeKit sessions rings the doorbell but skips ringback', () => {
     const h = createHarness({ reboundSessions: 1 });
     sendStart(h.connection);
 
     assert.equal(h.stream.hasHomekitSession, true);
-    assert.equal(h.homekit.doorbellCount, 0);
+    assert.equal(h.homekit.doorbellCount, 1);
     assert.equal(h.stream.ringbackTimer, null);
     h.connection.close();
   });
