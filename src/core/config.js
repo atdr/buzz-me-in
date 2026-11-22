@@ -21,7 +21,17 @@ function optional(name) {
   return value && value.trim() ? value.trim() : null;
 }
 
-function parsePositiveInt(name, fallback) {
+// Node cannot schedule a timer delay above 2^31 - 1 ms: setTimeout and
+// setInterval replace a larger one with 1 ms and print a TimeoutOverflowWarning.
+const MAX_TIMER_MS = 2147483647;
+
+/**
+ * @param {string} name
+ * @param {string} fallback
+ * @param {number} [max] Inclusive upper bound.
+ * @returns {number}
+ */
+function parsePositiveInt(name, fallback, max) {
   const raw = process.env[name];
   const value = raw && raw.trim() ? raw.trim() : fallback;
   if (!/^\d+$/.test(value)) {
@@ -30,6 +40,9 @@ function parsePositiveInt(name, fallback) {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     fail(`${name} must be a positive integer`);
+  }
+  if (max !== undefined && parsed > max) {
+    fail(`${name} must be at most ${max}`);
   }
   return parsed;
 }
@@ -185,10 +198,10 @@ module.exports = {
   callSessionStaleSec: parsePositiveInt('CALL_SESSION_STALE_SEC', '900'),
   wsMaxMessageBytes: parsePositiveInt('WS_MAX_MESSAGE_BYTES', '4096'),
   wsMaxConnections: parsePositiveInt('WS_MAX_CONNECTIONS', '64'),
-  streamStartTimeoutMs: parsePositiveInt('STREAM_START_TIMEOUT_MS', '3000'),
+  streamStartTimeoutMs: parsePositiveInt('STREAM_START_TIMEOUT_MS', '3000', MAX_TIMER_MS),
   twilioMediaPayloadMaxBytes: parsePositiveInt('TWILIO_MEDIA_PAYLOAD_MAX_BYTES', '512'),
-  shutdownGraceMs: parsePositiveInt('SHUTDOWN_GRACE_MS', '10000'),
-  homekitHangupGraceMs: parsePositiveInt('HOMEKIT_HANGUP_GRACE_MS', '8000'),
+  shutdownGraceMs: parsePositiveInt('SHUTDOWN_GRACE_MS', '10000', MAX_TIMER_MS),
+  homekitHangupGraceMs: parsePositiveInt('HOMEKIT_HANGUP_GRACE_MS', '8000', MAX_TIMER_MS),
   knownCallers: parseKnownCallers('KNOWN_CALLERS'),
   streamAuthSecret,
   streamAuthTtlSec: 90,
