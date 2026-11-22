@@ -39,6 +39,10 @@ npm run test
 - `tests/media-upgrade.test.cjs` - `/media` handshake as Twilio sees it:
   404/400/403/503 refusals, cap after signature, 1009 on an oversized frame,
   survival of malformed targets and socket errors
+- `tests/http-routes.test.cjs` - plain HTTP routes: `/twiml` signature check
+  (valid, invalid, missing, signed URL, 32 KB body limit, repeated form fields),
+  `/status` bearer token, `/healthz`, `/readyz`, `/ringtone`, 404s for unknown
+  paths and wrong methods, and the 503 while shutting down
 - `tests/media-stream.test.cjs` - Twilio media stream protocol
   (start/media/stop, token checks, teardown, binary frames ignored, size limit
   in UTF-8 bytes)
