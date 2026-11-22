@@ -346,9 +346,12 @@ test('GET /status', async (t) => {
     assert.equal(res.body, 'Unauthorized');
   });
 
-  await t.test('401s a wrong token, including one of a different length', async (t) => {
+  await t.test('401s a wrong token, of the same length or a different one', async (t) => {
     const { port } = await listen(t);
-    for (const token of ['wrong', `${STATUS_TOKEN}x`, STATUS_TOKEN.slice(0, -1), '']) {
+    // The same-length token catches a check that compares only lengths.
+    const sameLength = 'fedcba0987654321';
+    assert.equal(sameLength.length, STATUS_TOKEN.length);
+    for (const token of [sameLength, 'wrong', `${STATUS_TOKEN}x`, STATUS_TOKEN.slice(0, -1), '']) {
       const res = await request(port, 'GET', '/status', {
         headers: { authorization: `Bearer ${token}` },
       });
