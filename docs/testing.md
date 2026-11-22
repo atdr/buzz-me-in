@@ -59,7 +59,9 @@ npm run test
   view closes, and the pending hangup is cancelled, deferred, superseded or
   skipped correctly (unlock-from-room-view guard), and a START whose ffmpeg
   fails to spawn is answered once with an error and cleaned up instead of
-  crashing the process (`child_process.spawn` stubbed, no real ffmpeg)
+  crashing the process (`child_process.spawn` stubbed, no real ffmpeg); a
+  session the server ends, or whose ffmpeg exits on its own, is force stopped in
+  HAP-NodeJS without scheduling a hangup
 - `tests/cli.test.cjs` - `--qr`/`--check`/`--help`/`--version`, plus the
   hap-nodejs and node-persist behaviours they rest on
 - `tests/publish-release-workflow.test.cjs` - release publish workflow guards
