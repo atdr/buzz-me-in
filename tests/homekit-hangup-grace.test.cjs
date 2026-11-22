@@ -15,6 +15,10 @@
 // Real timers, with the grace period turned down by env, rather than
 // node:test's mock timers — those changed API shape across the Node 20/22/24
 // range this repo supports in CI.
+//
+// The START tests at the end share this file because they need the same
+// stubbed homekit.js, and because what a session ending does to the call is
+// the hangup decision again: a failed START must leave the call alone.
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -43,6 +47,72 @@ require.cache[twilioApiPath] = {
   },
 };
 
+// child_process.spawn is destructured at homekit.js module scope as well, so
+// it is replaced before that require too. Anything other than ffmpeg goes to
+// the real spawn. Each ffmpeg spawn takes the next entry from spawnPlan:
+//   'run'     a real, idle child process standing in for a healthy ffmpeg
+//   'missing' a real spawn of a binary that does not exist, so Node reports
+//             ENOENT exactly as it does with ffmpeg missing from PATH
+//   'throw'   spawn() itself throws synchronously
+// Real children rather than EventEmitter fakes, so the order of 'spawn',
+// 'error' and 'close' is Node's own and not an assumption baked into a fake.
+const childProcess = require('node:child_process');
+const realSpawn = childProcess.spawn;
+/** @type {Array<'run' | 'missing' | 'throw'>} */
+const spawnPlan = [];
+/** @type {Array<{ mode: string, args: string[], child: import('node:child_process').ChildProcess }>} */
+const spawned = [];
+/** How many stand-in children have emitted 'spawn' so far. */
+let spawnEvents = 0;
+childProcess.spawn = /** @type {any} */ (
+  (command, args, options) => {
+    if (command !== 'ffmpeg') return realSpawn(command, args, options);
+    const mode = spawnPlan.shift() || 'run';
+    if (mode === 'throw') throw new Error('spawn rejected its arguments');
+    const child =
+      mode === 'missing'
+        ? realSpawn('buzz-me-in-test-no-such-ffmpeg', args)
+        : realSpawn(process.execPath, [
+            '-e',
+            'process.stdin.resume(); setInterval(() => {}, 1000);',
+          ]);
+    // Registered before homekit.js attaches its own listener, so this count
+    // is already up to date when homekit.js reacts to the same event.
+    child.once('spawn', () => spawnEvents++);
+    spawned.push({ mode, args, child });
+    everySpawned.add(child);
+    return child;
+  }
+);
+// A stand-in child left running keeps this file's event loop alive, so a
+// regression that leaks one would hang the run instead of failing it.
+/** @type {Set<import('node:child_process').ChildProcess>} */
+const everySpawned = new Set();
+test.after(() => {
+  for (const child of everySpawned) {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+  }
+});
+
+// warn and error lines are captured rather than printed, so the tests can
+// assert on the events homekit.js emits without the run filling with them.
+/** @type {Array<Record<string, any>>} */
+const logLines = [];
+const realStderrWrite = process.stderr.write.bind(process.stderr);
+process.stderr.write = /** @type {any} */ (
+  (chunk, ...rest) => {
+    const text = String(chunk);
+    try {
+      const line = JSON.parse(text);
+      if (line && typeof line.event === 'string') {
+        logLines.push(line);
+        return true;
+      }
+    } catch {}
+    return realStderrWrite(chunk, ...rest);
+  }
+);
+
 const restoreEnv = applyEnv({
   TWILIO_ACCOUNT_SID: 'AC12345678901234567890123456789012',
   TWILIO_AUTH_TOKEN: 'test_auth_token',
@@ -55,7 +125,7 @@ const restoreEnv = applyEnv({
   HAP_PINCODE: '123-45-678',
   HAP_PORT: '47129',
   HOMEKIT_HANGUP_GRACE_MS: String(GRACE_MS),
-  LOG_LEVEL: 'error',
+  LOG_LEVEL: 'warn',
 });
 
 // homekit.js must be evicted too, not just its dependencies. The coverage run
@@ -63,7 +133,12 @@ const restoreEnv = applyEnv({
 // already-cached module with the real hangUpCall bound and the stub above is
 // silently ignored — which is exactly how this test first shipped, passing
 // under `npm test` and failing under `npm run coverage`.
-for (const module of ['../src/core/config', '../src/core/state', '../homekit.js']) {
+for (const module of [
+  '../src/core/config',
+  '../src/core/log',
+  '../src/core/state',
+  '../homekit.js',
+]) {
   delete require.cache[require.resolve(module)];
 }
 const state = require('../src/core/state');
@@ -275,4 +350,281 @@ test('the media stream is told only when the last session ends', async () => {
 
   homekit.setOnHapSessionEnded(null);
   homekit.cancelPendingHangUp('test-cleanup');
+});
+
+// ---------------------------------------------------------------------------
+// START: ffmpeg spawn failures (#154)
+//
+// Node reports a failed spawn as an asynchronous 'error' event on the child.
+// With no listener that event is rethrown, reaches server.js's
+// uncaughtException handler and exits the process, dropping the call: a
+// missing ffmpeg turned "open the live view" into "lose the visitor". If a
+// listener goes missing again, the ENOENT below is an uncaught exception and
+// this file fails outright.
+// ---------------------------------------------------------------------------
+
+const fs = require('node:fs');
+
+/** A session record as prepareStreamSession leaves it, ready for START. */
+function preparedSession(id) {
+  homekit.activeSessions.set(id, {
+    targetAddress: '127.0.0.1',
+    hkVideoPort: 51368,
+    hkVideoKey: Buffer.alloc(16, 1),
+    hkVideoSalt: Buffer.alloc(14, 2),
+    hkAudioPort: 59947,
+    hkAudioKey: Buffer.alloc(16, 3),
+    hkAudioSalt: Buffer.alloc(14, 4),
+    returnAudioPort: 50000,
+    returnAudioKey: Buffer.alloc(16, 3),
+    returnAudioSalt: Buffer.alloc(14, 4),
+    videoSsrc: 724732488,
+    audioSsrc: 1084775967,
+  });
+  return id;
+}
+
+/**
+ * Send HomeKit's START for `id` and collect every callback invocation. Resolves
+ * on the first one; callers wait a little longer to catch a second.
+ */
+function sendStart(id) {
+  /** @type {Array<Error | undefined>} */
+  const calls = [];
+  const first = new Promise((resolve) => {
+    homekit.streamingDelegate.handleStreamRequest(
+      {
+        sessionID: id,
+        type: 'start',
+        video: { max_bit_rate: 299, mtu: 1378, fps: 15, pt: 99 },
+        audio: { pt: 110 },
+      },
+      (error) => {
+        calls.push(error);
+        resolve(undefined);
+      }
+    );
+  });
+  return { calls, first };
+}
+
+/** Resolves once `child` has exited, whichever way it went. */
+function exited(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
+  return new Promise((resolve) => child.once('exit', () => resolve(undefined)));
+}
+
+/** The SDP path the outbound leg was spawned with. */
+function sdpPathOf(entry) {
+  return entry.args[entry.args.indexOf('-i') + 1];
+}
+
+function resetStart() {
+  spawnPlan.length = 0;
+  spawned.length = 0;
+  spawnEvents = 0;
+  logLines.length = 0;
+}
+
+test('a missing ffmpeg fails the START once and leaves the process up', async () => {
+  reset('CA-no-ffmpeg');
+  resetStart();
+  const started = [];
+  homekit.setOnHapSessionStarted((callSid) => started.push(callSid));
+  spawnPlan.push('missing', 'run');
+  preparedSession('session-no-ffin');
+
+  const { calls, first } = sendStart('session-no-ffin');
+  await first;
+  await sleep(50);
+
+  assert.equal(calls.length, 1, 'HomeKit must get exactly one answer to its START');
+  assert.ok(
+    calls[0] instanceof Error,
+    'the START must fail, not report a stream that is not there'
+  );
+  assert.equal(calls[0].code, 'ENOENT');
+  assert.equal(
+    homekit.activeSessions.has('session-no-ffin'),
+    false,
+    'the session must be forgotten'
+  );
+  assert.deepEqual(started, [], 'a failed START must not tell the media stream a live view opened');
+
+  const [ffIn, ffOut] = spawned;
+  await exited(ffOut.child);
+  assert.equal(ffOut.child.signalCode, 'SIGINT', 'the leg that did start must be stopped');
+  assert.equal(fs.existsSync(sdpPathOf(ffOut)), false, 'the SDP holds SRTP keys and must go');
+  assert.equal(ffIn.mode, 'missing');
+
+  const failed = logLines.filter((l) => l.event === 'stream-start-failed');
+  assert.equal(failed.length, 1);
+  assert.equal(failed[0].reason, 'ffin-spawn-failed');
+  assert.equal(failed[0].level, 'error');
+  assert.equal(failed[0].sessionId, 'session-no-ffin');
+
+  // The call is untouched: the resident can still unlock from the lock tile.
+  await sleep(GRACE_MS * 2);
+  assert.deepEqual(hangUps, [], 'a failed START must not hang up the call');
+  homekit.setOnHapSessionStarted(null);
+});
+
+test('an outbound spawn failure fails the START and stops the inbound leg', async () => {
+  reset('CA-no-ffout');
+  resetStart();
+  spawnPlan.push('run', 'missing');
+  preparedSession('session-no-ffout');
+
+  const { calls, first } = sendStart('session-no-ffout');
+  await first;
+  await sleep(50);
+
+  assert.equal(calls.length, 1);
+  assert.ok(calls[0] instanceof Error);
+  assert.equal(homekit.activeSessions.has('session-no-ffout'), false);
+
+  const [ffIn, ffOut] = spawned;
+  await exited(ffIn.child);
+  assert.equal(ffIn.child.signalCode, 'SIGINT', 'the inbound ffmpeg must not leak');
+  assert.equal(fs.existsSync(sdpPathOf(ffOut)), false);
+  assert.deepEqual(
+    logLines.filter((l) => l.event === 'stream-start-failed').map((l) => l.reason),
+    ['ffout-spawn-failed']
+  );
+});
+
+test('both legs failing to spawn still answers HomeKit only once', async () => {
+  reset('CA-no-ffmpeg-at-all');
+  resetStart();
+  spawnPlan.push('missing', 'missing');
+  preparedSession('session-none');
+
+  const { calls, first } = sendStart('session-none');
+  await first;
+  await sleep(50);
+
+  assert.equal(calls.length, 1, 'the second error must not call back again');
+  assert.ok(calls[0] instanceof Error);
+  assert.equal(logLines.filter((l) => l.event === 'stream-start-failed').length, 1);
+  assert.equal(homekit.activeSessions.size, 0);
+});
+
+test('a synchronous spawn throw fails the START the same way', async () => {
+  reset('CA-spawn-throws');
+  resetStart();
+  spawnPlan.push('run', 'throw');
+  preparedSession('session-throws');
+
+  const { calls, first } = sendStart('session-throws');
+  await first;
+  await sleep(50);
+
+  assert.equal(calls.length, 1);
+  assert.match(String(calls[0] && calls[0].message), /spawn rejected/);
+  assert.equal(homekit.activeSessions.has('session-throws'), false);
+  await exited(spawned[0].child);
+  assert.equal(spawned[0].child.signalCode, 'SIGINT');
+  assert.deepEqual(
+    logLines.filter((l) => l.event === 'stream-start-failed').map((l) => l.reason),
+    ['session-setup-threw']
+  );
+});
+
+test('a START whose legs both spawn succeeds once both are running', async () => {
+  reset('CA-healthy');
+  resetStart();
+  const started = [];
+  const spawnedWhenStarted = [];
+  homekit.setOnHapSessionStarted((callSid) => {
+    started.push(callSid);
+    spawnedWhenStarted.push(spawnEvents);
+  });
+  preparedSession('session-healthy');
+
+  const { calls, first } = sendStart('session-healthy');
+  let spawnedWhenAnswered = -1;
+  first.then(() => (spawnedWhenAnswered = spawnEvents));
+  assert.deepEqual(calls, [], 'START must not be answered before either leg has spawned');
+  await first;
+  await sleep(50);
+
+  assert.deepEqual(calls, [undefined], 'a healthy START is answered once, without an error');
+  assert.deepEqual(started, ['CA-healthy']);
+  assert.deepEqual(spawnedWhenStarted, [2], 'the media stream is told only once both legs spawned');
+  assert.equal(spawnedWhenAnswered, 2, 'HomeKit is answered only once both legs spawned');
+  for (const { child } of spawned) assert.ok(child.pid, 'both legs must be running');
+  const session = homekit.activeSessions.get('session-healthy');
+  assert.equal(session.ffIn, spawned[0].child);
+  assert.equal(session.ffOut, spawned[1].child);
+  assert.deepEqual(
+    logLines.filter((l) => l.event === 'stream-start-failed'),
+    []
+  );
+
+  homekit._stopSession('session-healthy', /* hangUp= */ false);
+  await Promise.all(spawned.map(({ child }) => exited(child)));
+  homekit.setOnHapSessionStarted(null);
+});
+
+test('a failed START that leaves no session tells the media stream the view is gone', async () => {
+  // Session A is live and the Home app has prepared B. A stops while B is
+  // still in the map, so _stopSession skips onHapSessionEnded. If B then
+  // fails to spawn, failStart is the last chance to send it; without it the
+  // media stream keeps forwarding Twilio audio into a buffer nobody reads.
+  reset('CA-replacement');
+  resetStart();
+  const ended = [];
+  homekit.setOnHapSessionEnded((callSid) => ended.push(callSid));
+  preparedSession('session-a-live');
+  const a = sendStart('session-a-live');
+  await a.first;
+  assert.deepEqual(a.calls, [undefined]);
+
+  preparedSession('session-b-replacement');
+  homekit._stopSession('session-a-live', /* hangUp= */ true);
+  assert.deepEqual(ended, [], 'B is still prepared, so A stopping is not the last session');
+  homekit.cancelPendingHangUp('test-isolate-start-failure');
+
+  spawnPlan.push('missing', 'run');
+  const b = sendStart('session-b-replacement');
+  await b.first;
+  assert.ok(b.calls[0] instanceof Error, 'B must fail its START');
+  assert.equal(homekit.activeSessions.size, 0);
+  assert.deepEqual(ended, ['CA-replacement'], 'the media stream must be told no view is left');
+
+  await Promise.all(spawned.map(({ child }) => exited(child)));
+  await sleep(GRACE_MS * 2);
+  assert.deepEqual(hangUps, [], 'a failed START must not hang up the call');
+  homekit.setOnHapSessionEnded(null);
+});
+
+test('an ffmpeg error after the START was answered ends the session, not the START', async () => {
+  // A child can still emit 'error' once running (a failed kill, for one).
+  // HomeKit has already been told the stream is up, so calling back again is
+  // wrong; the session is over instead.
+  reset('CA-late-error');
+  resetStart();
+  preparedSession('session-late-error');
+
+  const { calls, first } = sendStart('session-late-error');
+  await first;
+  const [ffIn, ffOut] = spawned;
+  ffIn.child.emit('error', Object.assign(new Error('kill EPERM'), { code: 'EPERM' }));
+  await exited(ffOut.child);
+  await sleep(50);
+
+  assert.deepEqual(calls, [undefined], 'the START callback must not fire a second time');
+  assert.equal(homekit.activeSessions.has('session-late-error'), false);
+  assert.equal(ffOut.child.signalCode, 'SIGINT', 'the surviving leg must be stopped');
+  assert.equal(fs.existsSync(sdpPathOf(ffOut)), false);
+  const ended = logLines.filter((l) => l.event === 'stream-ended-unexpectedly');
+  assert.equal(ended.length, 1);
+  assert.equal(ended[0].reason, 'ffin-process-error');
+  assert.equal(ended[0].level, 'warn');
+  assert.deepEqual(
+    logLines.filter((l) => l.event === 'stream-start-failed'),
+    []
+  );
+  ffIn.child.kill('SIGKILL');
+  await exited(ffIn.child);
 });
