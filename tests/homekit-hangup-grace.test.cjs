@@ -62,6 +62,8 @@ const realSpawn = childProcess.spawn;
 const spawnPlan = [];
 /** @type {Array<{ mode: string, args: string[], child: import('node:child_process').ChildProcess }>} */
 const spawned = [];
+/** How many stand-in children have emitted 'spawn' so far. */
+let spawnEvents = 0;
 childProcess.spawn = /** @type {any} */ (
   (command, args, options) => {
     if (command !== 'ffmpeg') return realSpawn(command, args, options);
@@ -74,6 +76,9 @@ childProcess.spawn = /** @type {any} */ (
             '-e',
             'process.stdin.resume(); setInterval(() => {}, 1000);',
           ]);
+    // Registered before homekit.js attaches its own listener, so this count
+    // is already up to date when homekit.js reacts to the same event.
+    child.once('spawn', () => spawnEvents++);
     spawned.push({ mode, args, child });
     everySpawned.add(child);
     return child;
@@ -417,6 +422,7 @@ function sdpPathOf(entry) {
 function resetStart() {
   spawnPlan.length = 0;
   spawned.length = 0;
+  spawnEvents = 0;
   logLines.length = 0;
 }
 
@@ -528,15 +534,24 @@ test('a START whose legs both spawn succeeds once both are running', async () =>
   reset('CA-healthy');
   resetStart();
   const started = [];
-  homekit.setOnHapSessionStarted((callSid) => started.push(callSid));
+  const spawnedWhenStarted = [];
+  homekit.setOnHapSessionStarted((callSid) => {
+    started.push(callSid);
+    spawnedWhenStarted.push(spawnEvents);
+  });
   preparedSession('session-healthy');
 
   const { calls, first } = sendStart('session-healthy');
+  let spawnedWhenAnswered = -1;
+  first.then(() => (spawnedWhenAnswered = spawnEvents));
+  assert.deepEqual(calls, [], 'START must not be answered before either leg has spawned');
   await first;
   await sleep(50);
 
   assert.deepEqual(calls, [undefined], 'a healthy START is answered once, without an error');
   assert.deepEqual(started, ['CA-healthy']);
+  assert.deepEqual(spawnedWhenStarted, [2], 'the media stream is told only once both legs spawned');
+  assert.equal(spawnedWhenAnswered, 2, 'HomeKit is answered only once both legs spawned');
   for (const { child } of spawned) assert.ok(child.pid, 'both legs must be running');
   const session = homekit.activeSessions.get('session-healthy');
   assert.equal(session.ffIn, spawned[0].child);
@@ -549,6 +564,38 @@ test('a START whose legs both spawn succeeds once both are running', async () =>
   homekit._stopSession('session-healthy', /* hangUp= */ false);
   await Promise.all(spawned.map(({ child }) => exited(child)));
   homekit.setOnHapSessionStarted(null);
+});
+
+test('a failed START that leaves no session tells the media stream the view is gone', async () => {
+  // Session A is live and the Home app has prepared B. A stops while B is
+  // still in the map, so _stopSession skips onHapSessionEnded. If B then
+  // fails to spawn, failStart is the last chance to send it; without it the
+  // media stream keeps forwarding Twilio audio into a buffer nobody reads.
+  reset('CA-replacement');
+  resetStart();
+  const ended = [];
+  homekit.setOnHapSessionEnded((callSid) => ended.push(callSid));
+  preparedSession('session-a-live');
+  const a = sendStart('session-a-live');
+  await a.first;
+  assert.deepEqual(a.calls, [undefined]);
+
+  preparedSession('session-b-replacement');
+  homekit._stopSession('session-a-live', /* hangUp= */ true);
+  assert.deepEqual(ended, [], 'B is still prepared, so A stopping is not the last session');
+  homekit.cancelPendingHangUp('test-isolate-start-failure');
+
+  spawnPlan.push('missing', 'run');
+  const b = sendStart('session-b-replacement');
+  await b.first;
+  assert.ok(b.calls[0] instanceof Error, 'B must fail its START');
+  assert.equal(homekit.activeSessions.size, 0);
+  assert.deepEqual(ended, ['CA-replacement'], 'the media stream must be told no view is left');
+
+  await Promise.all(spawned.map(({ child }) => exited(child)));
+  await sleep(GRACE_MS * 2);
+  assert.deepEqual(hangUps, [], 'a failed START must not hang up the call');
+  homekit.setOnHapSessionEnded(null);
 });
 
 test('an ffmpeg error after the START was answered ends the session, not the START', async () => {

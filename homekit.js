@@ -332,6 +332,14 @@ function _startSession(sessionID, s, request, callback) {
       activeSessions.delete(sessionID);
     }
     releaseSessionResources({ ffIn, ffOut, sdpPath, mulawStream: current && current.mulawStream });
+    // An earlier session's STOP skips this notification while the session
+    // being started is still in the map, so if this one was the last, nobody
+    // else will send it and the media stream keeps forwarding into nothing.
+    // No hangup: a START failing says nothing about the resident being done.
+    const activeCall = getActiveCall();
+    if (activeSessions.size === 0 && activeCall && onHapSessionEnded) {
+      onHapSessionEnded(activeCall.callSid);
+    }
     callback(error instanceof Error ? error : new Error(String(error)));
   }
 
