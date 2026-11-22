@@ -358,16 +358,21 @@ function _startSession(sessionID, s, request, callback) {
       }
       // The START has already been answered, so this is a running session
       // losing a process rather than a failed start.
-      const current = activeSessions.get(sessionID);
-      if (!current || (current.ffIn !== child && current.ffOut !== child)) return;
-      logger.warn('ffmpeg process error ended the HomeKit stream session', {
-        event: 'stream-ended-unexpectedly',
-        reason: `${leg}-process-error`,
-        sessionId: sessionID,
-        error,
-      });
-      _stopSession(sessionID, /* hangUp= */ false);
+      if (!ownsLiveSession(child)) return;
+      _endSessionUnexpectedly(sessionID, `${leg}-process-error`, { error });
     });
+  }
+
+  /**
+   * Whether `child` still belongs to this session's live entry. _stopSession
+   * and failStart remove the entry before killing anything, so a child they
+   * stopped on purpose is never mistaken for one that died on its own.
+   * @param {import('child_process').ChildProcess} child
+   */
+  function ownsLiveSession(child) {
+    if (!settled) return false;
+    const current = activeSessions.get(sessionID);
+    return Boolean(current) && (current.ffIn === child || current.ffOut === child);
   }
 
   // Any synchronous throw from here on (spawn() rejecting its arguments, a
@@ -401,13 +406,17 @@ function _startSession(sessionID, s, request, callback) {
         sessionId: sessionID,
       });
     });
-    ffIn.on('close', (code) => {
+    const inbound = ffIn;
+    ffIn.on('close', (code, signal) => {
       logger.info('Inbound ffmpeg exited', {
         event: 'ffin-exit',
         reason: code === 0 ? 'clean-exit' : 'nonzero-exit',
         exitCode: code,
         sessionId: sessionID,
       });
+      if (ownsLiveSession(inbound)) {
+        _endSessionUnexpectedly(sessionID, 'ffin-exited', { exitCode: code, signal });
+      }
     });
     ffIn.stdin.on('error', () => {}); // suppress EPIPE when stream ends
 
@@ -464,13 +473,17 @@ function _startSession(sessionID, s, request, callback) {
         sessionId: sessionID,
       });
     });
-    ffOut.on('close', (code) => {
+    const outbound = ffOut;
+    ffOut.on('close', (code, signal) => {
       logger.info('Outbound ffmpeg exited', {
         event: 'ffout-exit',
         reason: code === 0 ? 'clean-exit' : 'nonzero-exit',
         exitCode: code,
         sessionId: sessionID,
       });
+      if (ownsLiveSession(outbound)) {
+        _endSessionUnexpectedly(sessionID, 'ffout-exited', { exitCode: code, signal });
+      }
     });
 
     // Forward each decoded mulaw chunk to Twilio as a media event.
@@ -555,6 +568,48 @@ function _stopSession(sessionID, hangUp) {
   if (hangUp && activeCall) {
     scheduleHangUp(activeCall.callSid, sessionID);
   }
+}
+
+/**
+ * End a session the server decided to end, and tell HAP-NodeJS so the Home
+ * app closes the live view and the stream slot is freed. A STOP from HomeKit
+ * needs none of this, because HAP has already reset its own state by then.
+ *
+ * forceStopStreamingSession() only resets HAP's state for that stream
+ * (RTPStreamManagement.forceStop → handleSessionClosed in hap-nodejs 0.14.3);
+ * it does not call back into handleStreamRequest, so this cannot recurse into
+ * _stopSession. tests/homekit-hangup-grace.test.cjs pins that upstream.
+ *
+ * @param {string} sessionID
+ */
+function _stopSessionFromServer(sessionID) {
+  _stopSession(sessionID, /* hangUp= */ false);
+  cameraController.forceStopStreamingSession(sessionID);
+}
+
+/**
+ * A running session lost one of its ffmpeg processes. Nothing restarts it, so
+ * the session is over: stop the other leg, remove the SDP and close the HAP
+ * stream rather than leave the resident a frozen, silent view.
+ *
+ * This deliberately does not schedule a hangup. Only a STOP from HomeKit means
+ * the resident has finished; a crashed ffmpeg says nothing about that, and the
+ * call is what the lock tile needs to send DTMF. The resident can reopen the
+ * live view (a fresh START spawns new processes), and the caller hanging up
+ * still ends the call.
+ *
+ * @param {string} sessionID
+ * @param {string} reason
+ * @param {Record<string, unknown>} fields
+ */
+function _endSessionUnexpectedly(sessionID, reason, fields) {
+  logger.warn('HomeKit stream session ended unexpectedly', {
+    event: 'stream-ended-unexpectedly',
+    reason,
+    sessionId: sessionID,
+    ...fields,
+  });
+  _stopSessionFromServer(sessionID);
 }
 
 // ---------------------------------------------------------------------------
@@ -858,16 +913,17 @@ function clearMulawPassthrough(stream) {
 }
 
 /**
- * Force-close all active HAP sessions.
- * Called when Twilio fires the 'stop' event (caller hung up).
- * Does NOT call hangUpCall — the call is already gone.
+ * Force-close all active HAP sessions, including HAP's side of each stream so
+ * the Home app closes the live view instead of freezing on its last frame.
+ * Called when the call ends (Twilio 'stop', WebSocket close, stale reaper) and
+ * on shutdown. Does NOT call hangUpCall — the call is already gone.
  */
 function endHapSession() {
   // The caller is already gone, so a hangup left over from a closed live view
   // has nothing to end.
   cancelPendingHangUp('call-ended');
-  for (const sessionID of activeSessions.keys()) {
-    _stopSession(sessionID, /* hangUp= */ false);
+  for (const sessionID of [...activeSessions.keys()]) {
+    _stopSessionFromServer(sessionID);
   }
 }
 
