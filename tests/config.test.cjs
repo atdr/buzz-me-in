@@ -105,3 +105,31 @@ test('config rejects a port with trailing non-numeric characters', () => {
     );
   });
 });
+
+for (const name of ['HOMEKIT_HANGUP_GRACE_MS', 'SHUTDOWN_GRACE_MS', 'STREAM_START_TIMEOUT_MS']) {
+  test(`config rejects ${name} above the largest Node timer delay`, () => {
+    withEnv({ ...BASE_ENV, [name]: '2147483648' }, () => {
+      assert.throws(
+        () => freshRequire('../../src/core/config.js'),
+        new RegExp(`${name} must be at most 2147483647`)
+      );
+    });
+  });
+}
+
+test('config accepts exactly the largest Node timer delay', () => {
+  withEnv(
+    {
+      ...BASE_ENV,
+      HOMEKIT_HANGUP_GRACE_MS: '2147483647',
+      SHUTDOWN_GRACE_MS: '2147483647',
+      STREAM_START_TIMEOUT_MS: '2147483647',
+    },
+    () => {
+      const config = freshRequire('../../src/core/config.js');
+      assert.equal(config.homekitHangupGraceMs, 2147483647);
+      assert.equal(config.shutdownGraceMs, 2147483647);
+      assert.equal(config.streamStartTimeoutMs, 2147483647);
+    }
+  );
+});
