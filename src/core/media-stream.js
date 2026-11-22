@@ -203,10 +203,12 @@ class MediaStream {
     this.started = true;
     this.deps.registry.set(start.callSid, this);
     const reboundSessionCount = this.deps.homekit.setMulawPassthrough(this.mulawStream);
+    // The doorbell always rings: it notifies every device and fires automations,
+    // not just the viewer. Only ringback depends on someone already listening.
+    this.deps.homekit.triggerDoorbell();
     if (reboundSessionCount > 0) {
       this.markHomekitSessionStarted();
     } else {
-      this.deps.homekit.triggerDoorbell();
       this.startRingback();
     }
   }
