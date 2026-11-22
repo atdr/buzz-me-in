@@ -95,6 +95,10 @@ rationale and the referenced history.
   there is no queueing.
 - **SDP files written to `/tmp`** (`/tmp/intercom_return_<sessionID>.sdp`),
   unlinked on session stop; a crash can leave strays.
+- **A dead ffmpeg is not restarted.** If either process exits mid-session the
+  session ends (`stream-ended-unexpectedly`) and HomeKit is told to close the
+  view; the resident has to reopen it. The call is deliberately left up, since a
+  crash is not the resident finishing, and the lock tile needs the call.
 - **No real camera**: the video track is synthetic; "video broken" reports are
   usually keyframe/SRTP issues, not camera issues.
 

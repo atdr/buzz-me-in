@@ -145,6 +145,18 @@ const state = require('../src/core/state');
 const homekit = require('../homekit.js');
 restoreEnv();
 
+// Every forceStopStreamingSession call, by session. homekit.js looks the
+// method up on its controller at call time, so wrapping the prototype after
+// the require is enough; the real method still runs.
+const { CameraController } = require('hap-nodejs');
+/** @type {string[]} */
+const forcedStops = [];
+const realForceStop = CameraController.prototype.forceStopStreamingSession;
+CameraController.prototype.forceStopStreamingSession = function (sessionId) {
+  forcedStops.push(sessionId);
+  return realForceStop.call(this, sessionId);
+};
+
 // homekit.js reads the active call through the state singleton on every use,
 // so shadowing the method is enough to drive it.
 let activeCall = null;
@@ -323,6 +335,7 @@ test('stopping every session in turn ends the call exactly once', async () => {
 test('a caller-initiated teardown never hangs up, whatever is streaming', async () => {
   // endHapSession runs on the Twilio stop: the call is already gone.
   reset('CA-caller-left');
+  forcedStops.length = 0;
   fakeSession('session-a');
   fakeSession('session-b');
 
@@ -331,6 +344,30 @@ test('a caller-initiated teardown never hangs up, whatever is streaming', async 
   await sleep(GRACE_MS * 2);
   assert.deepEqual(hangUps, [], 'the caller hung up; there is nothing left to hang up');
   assert.equal(homekit.activeSessions.size, 0, 'endHapSession must drain every session');
+  // #155: without this HAP holds both streams IN_USE and the Home app shows a
+  // frozen frame until the resident closes it by hand.
+  assert.deepEqual(
+    forcedStops,
+    ['session-a', 'session-b'],
+    'HomeKit must be told each stream is over, or both views freeze and hold both slots'
+  );
+});
+
+test('a STOP from HomeKit does not force stop the stream HAP already closed', async () => {
+  reset('CA-homekit-stop');
+  forcedStops.length = 0;
+  fakeSession('session-stopped');
+
+  await new Promise((resolve) =>
+    homekit.streamingDelegate.handleStreamRequest(
+      { sessionID: 'session-stopped', type: 'stop' },
+      resolve
+    )
+  );
+
+  assert.equal(homekit.activeSessions.size, 0);
+  assert.deepEqual(forcedStops, [], 'HAP reset its own state before calling the delegate');
+  assert.deepEqual(await waitForHangUp(), ['CA-homekit-stop'], 'a STOP still ends the call');
 });
 
 test('the media stream is told only when the last session ends', async () => {
@@ -408,10 +445,23 @@ function sendStart(id) {
   return { calls, first };
 }
 
-/** Resolves once `child` has exited, whichever way it went. */
-function exited(child) {
+/**
+ * Resolves once `child` has exited, whichever way it went. Rejects if it is
+ * still running after `timeoutMs`, so a leg that is never stopped fails the
+ * test rather than hanging the run.
+ */
+function exited(child, timeoutMs = 5000) {
   if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve();
-  return new Promise((resolve) => child.once('exit', () => resolve(undefined)));
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`pid ${child.pid} still running after ${timeoutMs} ms`)),
+      timeoutMs
+    );
+    child.once('exit', () => {
+      clearTimeout(timer);
+      resolve(undefined);
+    });
+  });
 }
 
 /** The SDP path the outbound leg was spawned with. */
@@ -420,6 +470,8 @@ function sdpPathOf(entry) {
 }
 
 function resetStart() {
+  homekit.activeSessions.clear();
+  forcedStops.length = 0;
   spawnPlan.length = 0;
   spawned.length = 0;
   spawnEvents = 0;
@@ -625,6 +677,159 @@ test('an ffmpeg error after the START was answered ends the session, not the STA
     logLines.filter((l) => l.event === 'stream-start-failed'),
     []
   );
+  assert.deepEqual(forcedStops, ['session-late-error'], 'HomeKit must be told the stream ended');
   ffIn.child.kill('SIGKILL');
   await exited(ffIn.child);
+});
+
+// ---------------------------------------------------------------------------
+// A running ffmpeg exiting on its own (#155)
+//
+// Nothing restarts a dead ffmpeg, so the session is over. It used to stay in
+// activeSessions with a dead process: a frozen, silent view, HAP still holding
+// the stream, and activeSessions.size never reaching zero. The stand-in child
+// is killed from outside, which is exactly what a crash looks like to Node.
+// ---------------------------------------------------------------------------
+
+/** START `id` with healthy stand-ins and return its two legs. */
+async function startHealthy(id) {
+  preparedSession(id);
+  const before = spawned.length;
+  const { calls, first } = sendStart(id);
+  await first;
+  assert.deepEqual(calls, [undefined]);
+  const [ffIn, ffOut] = spawned.slice(before);
+  return { ffIn, ffOut };
+}
+
+test('a crashed inbound ffmpeg ends the session and closes the HAP stream', async () => {
+  reset('CA-ffin-crash');
+  resetStart();
+  forcedStops.length = 0;
+  const ended = [];
+  homekit.setOnHapSessionEnded((callSid) => ended.push(callSid));
+  const { ffIn, ffOut } = await startHealthy('session-crash');
+
+  ffIn.child.kill('SIGKILL');
+  await exited(ffOut.child);
+  await sleep(50);
+
+  assert.equal(homekit.activeSessions.has('session-crash'), false);
+  assert.equal(ffOut.child.signalCode, 'SIGINT', 'the surviving leg must be stopped');
+  assert.equal(fs.existsSync(sdpPathOf(ffOut)), false);
+  assert.deepEqual(forcedStops, ['session-crash']);
+  assert.deepEqual(ended, ['CA-ffin-crash'], 'the media stream must stop forwarding');
+
+  const lines = logLines.filter((l) => l.event === 'stream-ended-unexpectedly');
+  assert.equal(lines.length, 1, 'the surviving leg being stopped is not a second crash');
+  assert.equal(lines[0].level, 'warn');
+  assert.equal(lines[0].reason, 'ffin-exited');
+  assert.equal(lines[0].signal, 'SIGKILL');
+  assert.equal(lines[0].sessionId, 'session-crash');
+
+  // A crash is not the resident closing the view: the call stays up for the
+  // lock tile, and a later STOP or the caller hanging up still ends it.
+  await sleep(GRACE_MS * 2);
+  assert.deepEqual(hangUps, [], 'an ffmpeg crash must not hang up the call');
+  homekit.setOnHapSessionEnded(null);
+});
+
+test('a crashed outbound ffmpeg leaves a second session streaming', async () => {
+  reset('CA-ffout-crash');
+  resetStart();
+  forcedStops.length = 0;
+  const ended = [];
+  homekit.setOnHapSessionEnded((callSid) => ended.push(callSid));
+  const survivor = await startHealthy('session-survivor');
+  const crashing = await startHealthy('session-ffout-crash');
+
+  crashing.ffOut.child.kill('SIGKILL');
+  await exited(crashing.ffIn.child);
+  await sleep(50);
+
+  assert.deepEqual([...homekit.activeSessions.keys()], ['session-survivor']);
+  assert.deepEqual(forcedStops, ['session-ffout-crash']);
+  assert.deepEqual(ended, [], 'the surviving live view still needs audio');
+  assert.deepEqual(
+    logLines.filter((l) => l.event === 'stream-ended-unexpectedly').map((l) => l.reason),
+    ['ffout-exited']
+  );
+  assert.equal(survivor.ffIn.child.exitCode, null, 'the other session must keep running');
+
+  homekit._stopSession('session-survivor', /* hangUp= */ false);
+  await Promise.all([survivor.ffIn.child, survivor.ffOut.child].map((child) => exited(child)));
+  homekit.setOnHapSessionEnded(null);
+});
+
+test('stopping a session on purpose is never reported as a crash', async () => {
+  reset('CA-clean-stop');
+  resetStart();
+  forcedStops.length = 0;
+  const { ffIn, ffOut } = await startHealthy('session-clean');
+
+  await new Promise((resolve) =>
+    homekit.streamingDelegate.handleStreamRequest(
+      { sessionID: 'session-clean', type: 'stop' },
+      resolve
+    )
+  );
+  await Promise.all([ffIn.child, ffOut.child].map((child) => exited(child)));
+  await sleep(50);
+
+  assert.deepEqual(
+    logLines.filter((l) => l.event === 'stream-ended-unexpectedly'),
+    []
+  );
+  assert.deepEqual(forcedStops, []);
+  assert.deepEqual(await waitForHangUp(), ['CA-clean-stop'], 'a STOP still schedules the hangup');
+});
+
+test('the caller hanging up mid-stream is not reported as a crash either', async () => {
+  reset('CA-call-ended');
+  resetStart();
+  forcedStops.length = 0;
+  const { ffIn, ffOut } = await startHealthy('session-call-ended');
+
+  homekit.endHapSession();
+  await Promise.all([ffIn.child, ffOut.child].map((child) => exited(child)));
+  await sleep(50);
+
+  assert.deepEqual(
+    logLines.filter((l) => l.event === 'stream-ended-unexpectedly'),
+    []
+  );
+  assert.deepEqual(forcedStops, ['session-call-ended']);
+});
+
+// ---------------------------------------------------------------------------
+// The upstream behaviour _stopSessionFromServer rests on. If hap-nodejs ever
+// makes forceStop() call the delegate with a STOP, a server-side end would
+// re-enter _stopSession (harmless, the session is gone) and, worse, schedule
+// a hangup the resident never asked for. Re-read it before relaxing this.
+// ---------------------------------------------------------------------------
+
+test('hap-nodejs forceStop still only resets its own stream state', () => {
+  const source = fs.readFileSync(
+    require.resolve('hap-nodejs/dist/lib/camera/RTPStreamManagement.js'),
+    'utf8'
+  );
+  const body = (marker) => {
+    const start = source.indexOf(marker);
+    assert.notEqual(start, -1, `hap-nodejs has no ${marker}`);
+    return source.slice(start, source.indexOf('\n    };', start));
+  };
+  assert.match(
+    body('RTPStreamManagement.prototype.forceStop = function'),
+    /handleSessionClosed\(\)/
+  );
+  for (const marker of [
+    'RTPStreamManagement.prototype.forceStop = function',
+    'RTPStreamManagement.prototype.handleSessionClosed = function',
+  ]) {
+    assert.doesNotMatch(
+      body(marker),
+      /delegate|handleStreamRequest/,
+      `${marker} now calls the delegate`
+    );
+  }
 });

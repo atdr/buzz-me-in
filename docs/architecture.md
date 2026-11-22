@@ -63,12 +63,20 @@ transient implementation details so it stays useful as internals evolve.
    - ingest HomeKit return audio and forward mulaw payloads back to Twilio WS
    - send generated ringback and unlock DTMF back to Twilio over the same WS
 7. Call/session cleanup occurs on Twilio `stop`, WS close, stale timeout, or
-   shutdown.
+   shutdown. Ending the call also force stops every HomeKit stream through
+   HAP-NodeJS (`forceStopStreamingSession`), so the Home app closes the live
+   view and frees the stream slot instead of freezing on the last frame.
 8. Closing the HomeKit live view tears down the ffmpeg pipelines immediately and
    stops forwarding Twilio audio (`homekit-session-ended`), but hangs up the
    Twilio call only after `HOMEKIT_HANGUP_GRACE_MS`, so the lock tile in the
    room view still has a call to send DTMF to. Reopening the view, or the caller
    hanging up, cancels the pending hangup; sending unlock restarts the window.
+9. An ffmpeg process that fails to spawn fails that START with an error
+   (`stream-start-failed`) and leaves the call up. One that exits on its own
+   during a session ends that session (`stream-ended-unexpectedly`): the other
+   process is stopped, the HAP stream force stopped, and the last session ending
+   stops forwarding as above, but no hangup is scheduled, because only a HomeKit
+   STOP means the resident has finished.
 
 ## Session model
 
