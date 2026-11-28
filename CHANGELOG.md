@@ -1,5 +1,14 @@
 # Changelog
 
+## [3.0.5](https://github.com/atdr/buzz-me-in/compare/v3.0.4...v3.0.5) (2026-11-28)
+
+
+### Bug Fixes
+
+* **config:** reject timer values Node cannot schedule ([#178](https://github.com/atdr/buzz-me-in/issues/178)) ([7591f8d](https://github.com/atdr/buzz-me-in/commit/7591f8df492b6ee2ac65f64f9c4ef10edabd8423))
+* **deps:** bump twilio from 6.3.0 to 6.3.1 ([#183](https://github.com/atdr/buzz-me-in/issues/183)) ([e676cec](https://github.com/atdr/buzz-me-in/commit/e676cec7a3405fb277f1f2b5c562cbf787765692))
+* **homekit:** fail START cleanly when ffmpeg cannot spawn ([#179](https://github.com/atdr/buzz-me-in/issues/179)) ([ece05c7](https://github.com/atdr/buzz-me-in/commit/ece05c749eba35d187f8ee9e5e5a71309c0a6b50))
+
 ## [3.0.4](https://github.com/atdr/buzz-me-in/compare/v3.0.3...v3.0.4) (2026-11-17)
 
 
